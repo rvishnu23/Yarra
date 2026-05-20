@@ -1,6 +1,66 @@
 {
   "schools": [
     {
+      "id": "school-greenfield-public-school-mpdvgdub",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "admin@school.edu",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-sboa-mpdv6n2h",
+      "name": "sboa",
+      "city": "Bengaluru",
+      "board": "IGCSE",
+      "type": "Senior Secondary",
+      "contact": "admin@school.edu",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpds671j",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "admin@school.edu",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpdrtgfr",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "admin@school.edu",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpdrspxs",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "admin@school.edu",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
       "id": "school-greenfield-public-school-mpdr5nlj",
       "name": "Greenfield Public School",
       "city": "Bengaluru",
@@ -288,6 +348,66 @@
     }
   ],
   "payments": [
+    {
+      "id": "pay-greenfield-public-school-mpdvgdub",
+      "schoolId": "school-greenfield-public-school-mpdvgdub",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1013",
+      "method": "Razorpay hosted link",
+      "gatewayPaymentId": "plink_SrZXkGRY691Ewa",
+      "gatewayOrderId": "plink_SrZXkGRY691Ewa",
+      "createdAt": "2026-05-20"
+    },
+    {
+      "id": "pay-sboa-mpdv6n2h",
+      "schoolId": "school-sboa-mpdv6n2h",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1012",
+      "method": "Direct UPI",
+      "gatewayPaymentId": "upi_manual_mpdv6n29",
+      "gatewayOrderId": "order_SrZPtAWaryqqDM",
+      "createdAt": "2026-05-20"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpds671j",
+      "schoolId": "school-greenfield-public-school-mpds671j",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1011",
+      "method": "Razorpay simulation",
+      "gatewayPaymentId": "pay_sim_mpds671g",
+      "gatewayOrderId": "order_sim_mpds66hk",
+      "createdAt": "2026-05-20"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpdrtgfr",
+      "schoolId": "school-greenfield-public-school-mpdrtgfr",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1010",
+      "method": "Razorpay simulation",
+      "gatewayPaymentId": "pay_sim_mpdrtgfn",
+      "gatewayOrderId": "order_sim_mpdrtfvz",
+      "createdAt": "2026-05-20"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpdrspxs",
+      "schoolId": "school-greenfield-public-school-mpdrspxs",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1009",
+      "method": "Razorpay simulation",
+      "gatewayPaymentId": "pay_sim_mpdrspxp",
+      "gatewayOrderId": "order_sim_mpdrspdz",
+      "createdAt": "2026-05-20"
+    },
     {
       "id": "pay-membership-renewal-mpdr5rnm",
       "schoolId": "school-greenfield-public-school-mpdr5nlj",

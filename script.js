@@ -26,6 +26,34 @@ const api = {
     }
     return body;
   },
+  async createRazorpayLink(payload) {
+    const response = await fetch("/api/payments/razorpay-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error || "Unable to create Razorpay payment link");
+    }
+    return body;
+  },
+  async paymentConfig() {
+    const response = await fetch("/api/payments/config");
+    return response.json();
+  },
+  async createUpiIntent(payload) {
+    const response = await fetch("/api/payments/upi-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error || "Unable to create UPI payment");
+    }
+    return body;
+  },
   async post(path) {
     const response = await fetch(path, { method: "POST" });
     if (!response.ok) {
@@ -62,9 +90,12 @@ const notificationButton = document.querySelector("#notificationButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const invoicePanel = document.querySelector(".invoice-panel");
 const studentGrid = document.querySelector("#studentGrid");
+const paymentConfig = document.querySelector("#paymentConfig");
+const paymentRescueButton = document.querySelector("#paymentRescueButton");
 
 let state = {};
 let libraryFilter = "All";
+let paymentConfigState = {};
 
 const imageMap = {
   event: "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=900&q=80",
@@ -88,6 +119,11 @@ const showToast = (message) => {
   showToast.timer = window.setTimeout(() => {
     toast.classList.remove("is-visible");
   }, 3000);
+};
+
+const clearPaymentOverlay = () => {
+  document.querySelectorAll(".razorpay-container, iframe[src*='razorpay']").forEach((item) => item.remove());
+  document.body.style.overflow = "";
 };
 
 const setView = (viewId) => {
@@ -432,6 +468,18 @@ const renderPayments = () => {
   `;
 };
 
+const renderPaymentConfig = () => {
+  if (!paymentConfig) return;
+  if (paymentConfigState.razorpayConfigured) {
+    paymentConfig.className = "payment-config is-live";
+    paymentConfig.textContent = `Razorpay live: ${paymentConfigState.razorpayKeyId}`;
+  } else {
+    paymentConfig.className = "payment-config is-missing";
+    paymentConfig.textContent =
+      "Razorpay keys missing. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env, then restart npm start.";
+  }
+};
+
 const renderStudents = () => {
   const students = state.students || [];
   studentGrid.innerHTML = students
@@ -478,13 +526,16 @@ const renderAll = () => {
   renderLibrary();
   renderVendors();
   renderPayments();
+  renderPaymentConfig();
   renderStudents();
   renderProfiles();
   renderNotifications();
 };
 
 const refresh = async () => {
-  state = await api.state();
+  const [nextState, nextPaymentConfig] = await Promise.all([api.state(), api.paymentConfig()]);
+  state = nextState;
+  paymentConfigState = nextPaymentConfig;
   renderAll();
 };
 
@@ -524,6 +575,113 @@ const loadRazorpayScript = () =>
     document.head.append(script);
   });
 
+const openUpiPayment = async (order, school) => {
+  const intent = await api.createUpiIntent({
+    amount: order.amount / 100,
+    note: `Yaara membership - ${school.name}`
+  });
+
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-heading">
+          <h2>Pay ₹${intent.amount} by UPI</h2>
+          <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+        </div>
+        <div class="upi-details">
+          <p class="eyebrow">Payee UPI ID</p>
+          <strong>${intent.payeeId}</strong>
+          <p>Open this payment link on a device with a UPI app, complete the ₹${intent.amount} payment, then confirm below.</p>
+          <a class="primary-button upi-link" href="${intent.uri}">Open UPI app</a>
+          <button class="ghost-button copy-upi" type="button">Copy UPI link</button>
+        </div>
+        <button class="primary-button confirm-upi" type="button">I have paid ₹${intent.amount}</button>
+        <p class="login-note">This local direct UPI flow records payment after your confirmation. Bank verification requires Razorpay webhooks or a payment provider settlement account.</p>
+      </div>
+    `;
+
+    overlay.querySelector(".close-modal").addEventListener("click", () => {
+      overlay.remove();
+      reject(new Error("Payment cancelled"));
+    });
+    overlay.querySelector(".copy-upi").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(intent.uri);
+        showToast("UPI payment link copied.");
+      } catch {
+        showToast(intent.uri);
+      }
+    });
+    overlay.querySelector(".confirm-upi").addEventListener("click", () => {
+      overlay.remove();
+      resolve({
+        razorpay_payment_id: `upi_manual_${Date.now().toString(36)}`,
+        razorpay_order_id: order.id,
+        simulated: true,
+        method: "Direct UPI",
+        upiId: intent.payeeId
+      });
+    });
+
+    document.body.append(overlay);
+  });
+};
+
+const openRazorpayHostedLink = (link, order, school) =>
+  new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-heading">
+          <h2>Pay ₹${order.amount / 100} on Razorpay</h2>
+          <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+        </div>
+        <div class="upi-details">
+          <p class="eyebrow">Hosted Razorpay payment page</p>
+          <strong>UPI / QR payment</strong>
+          <p>Open Razorpay's hosted payment page. It avoids the stuck popup and should show the UPI QR scan option on the Razorpay page.</p>
+          <a class="primary-button upi-link" href="${link.short_url}">Open Razorpay payment page</a>
+          <code class="payment-url">${link.short_url}</code>
+          <button class="ghost-button copy-razorpay-link" type="button">Copy payment link</button>
+        </div>
+        <button class="primary-button confirm-razorpay-link" type="button">I completed the ₹${order.amount / 100} Razorpay payment</button>
+        <p class="login-note">For automatic confirmation, the next production step is adding Razorpay webhooks. For this local test, confirm after payment.</p>
+      </div>
+    `;
+
+    overlay.querySelector(".close-modal").addEventListener("click", () => {
+      overlay.remove();
+      reject(new Error("Payment cancelled"));
+    });
+    overlay.querySelector(".upi-link").addEventListener("click", (event) => {
+      event.preventDefault();
+      window.location.href = link.short_url;
+    });
+    overlay.querySelector(".copy-razorpay-link").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(link.short_url);
+        showToast("Razorpay payment link copied.");
+      } catch {
+        showToast(link.short_url);
+      }
+    });
+    overlay.querySelector(".confirm-razorpay-link").addEventListener("click", () => {
+      overlay.remove();
+      resolve({
+        razorpay_payment_id: link.id,
+        razorpay_order_id: link.reference_id || link.id,
+        method: "Razorpay hosted link",
+        simulated: false,
+        schoolName: school.name
+      });
+    });
+
+    document.body.append(overlay);
+  });
+
 const openRazorpayCheckout = (order, school) =>
   new Promise(async (resolve, reject) => {
     if (order.simulated || !window.Razorpay) {
@@ -538,16 +696,16 @@ const openRazorpayCheckout = (order, school) =>
     }
 
     if (order.simulated) {
-      window.setTimeout(() => {
-        resolve({
-          razorpay_payment_id: `pay_sim_${Date.now().toString(36)}`,
-          razorpay_order_id: order.id,
-          simulated: true
-        });
-      }, 700);
-      return;
+      try {
+        resolve(await openUpiPayment(order, school));
+        return;
+      } catch (error) {
+        reject(error);
+        return;
+      }
     }
 
+    let settled = false;
     const checkout = new window.Razorpay({
       key: order.key,
       amount: order.amount,
@@ -556,6 +714,32 @@ const openRazorpayCheckout = (order, school) =>
       description: "Yaara Consortium membership",
       image: "assets/yarra-logo.jpeg",
       order_id: order.id,
+      method: {
+        upi: true,
+        card: false,
+        netbanking: false,
+        wallet: false,
+        emi: false,
+        paylater: false
+      },
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: "Pay using UPI",
+              instruments: [
+                {
+                  method: "upi"
+                }
+              ]
+            }
+          },
+          sequence: ["block.upi"],
+          preferences: {
+            show_default_blocks: false
+          }
+        }
+      },
       prefill: {
         name: school.name,
         email: school.contact
@@ -563,13 +747,20 @@ const openRazorpayCheckout = (order, school) =>
       theme: {
         color: "#1e6b78"
       },
-      handler: (response) => resolve(response),
+      handler: (response) => {
+        settled = true;
+        resolve(response);
+      },
       modal: {
-        ondismiss: () => reject(new Error("Payment cancelled"))
+        ondismiss: () => {
+          settled = true;
+          reject(new Error("Payment cancelled"));
+        }
       }
     });
 
     checkout.on("payment.failed", (response) => {
+      settled = true;
       reject(new Error(response.error?.description || "Razorpay payment failed"));
     });
 
@@ -679,25 +870,39 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     contact: "admin@school.edu",
     earlyYears: event.currentTarget.querySelector('input[type="checkbox"]').checked
   };
+  const amount = Math.max(1, Number(formData.get("amount") || 1));
   try {
+    paymentRescueButton.classList.remove("hidden");
     formStatus.textContent = "Creating Razorpay payment order...";
     const order = await api.createRazorpayOrder({
-      amount: 25000,
+      amount,
       type: "Membership",
       schoolName: payload.name
     });
     formStatus.textContent = order.simulated
-      ? "Razorpay keys not configured. Running local payment simulation..."
-      : "Opening Razorpay checkout...";
-    const payment = await openRazorpayCheckout(order, {
+      ? order.reason || "Razorpay keys not configured. Running local payment simulation..."
+      : "Creating Razorpay hosted payment page...";
+    const schoolForPayment = {
       name: payload.name,
       contact: payload.contact
-    });
+    };
+    const payment = order.simulated
+      ? await openRazorpayCheckout(order, schoolForPayment)
+      : await openRazorpayHostedLink(
+          await api.createRazorpayLink({
+            amount,
+            type: "Membership",
+            schoolName: payload.name,
+            email: payload.contact
+          }),
+          order,
+          schoolForPayment
+        );
 
     await api.create("schools", {
       ...payload,
       amount: order.amount / 100,
-      paymentMethod: payment.simulated ? "Razorpay simulation" : "Razorpay",
+      paymentMethod: payment.method || (payment.simulated ? "Razorpay simulation" : "Razorpay"),
       gatewayPaymentId: payment.razorpay_payment_id,
       gatewayOrderId: payment.razorpay_order_id
     });
@@ -706,8 +911,18 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     await refresh();
     setView("schoolDashboard");
   } catch (error) {
+    clearPaymentOverlay();
     formStatus.textContent = error.message;
+  } finally {
+    paymentRescueButton.classList.add("hidden");
   }
+});
+
+paymentRescueButton.addEventListener("click", () => {
+  clearPaymentOverlay();
+  paymentRescueButton.classList.add("hidden");
+  document.querySelector("#schoolForm .form-status").textContent =
+    "Payment screen cancelled. Click Save and continue to payment to try again.";
 });
 
 document.querySelector("#paymentButton").addEventListener("click", () => {

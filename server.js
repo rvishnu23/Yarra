@@ -9,8 +9,30 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDir = join(root, "data");
 const dbPath = join(dataDir, "db.json");
 const port = Number(process.env.PORT || 4173);
+
+async function loadEnvFile() {
+  const envPath = join(root, ".env");
+  if (!existsSync(envPath)) return;
+
+  const lines = (await readFile(envPath, "utf8")).split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+    const [rawKey, ...rawValue] = trimmed.split("=");
+    const key = rawKey.trim();
+    const value = rawValue.join("=").trim().replace(/^["']|["']$/g, "");
+    if (key && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+await loadEnvFile();
+
 const razorpayKeyId = process.env.RAZORPAY_KEY_ID || "";
 const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET || "";
+const upiPayeeId = process.env.UPI_PAYEE_ID || "vishnuaravindhr-1@okicici";
+const upiPayeeName = process.env.UPI_PAYEE_NAME || "Yarra Education Group";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -301,6 +323,40 @@ function postRazorpayOrder(order) {
   });
 }
 
+function postRazorpayPaymentLink(paymentLink) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(paymentLink);
+    const auth = Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString("base64");
+    const request = httpsRequest(
+      {
+        hostname: "api.razorpay.com",
+        path: "/v1/payment_links",
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload)
+        }
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            resolve(JSON.parse(body));
+          } else {
+            reject(new Error(body || "Razorpay payment link creation failed"));
+          }
+        });
+      }
+    );
+    request.on("error", reject);
+    request.write(payload);
+    request.end();
+  });
+}
+
 function sendJson(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
@@ -348,6 +404,16 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && resource === "payments" && id === "config") {
+    sendJson(res, 200, {
+      razorpayConfigured: Boolean(razorpayKeyId && razorpayKeySecret),
+      razorpayKeyId: razorpayKeyId ? `${razorpayKeyId.slice(0, 8)}...` : "",
+      upiPayeeId,
+      upiPayeeName
+    });
+    return;
+  }
+
   if (req.method === "POST" && resource === "payments" && id === "razorpay-order") {
     const body = await readBody(req);
     const amount = Number(body.amount || 25000);
@@ -360,7 +426,8 @@ async function handleApi(req, res, url) {
         currency: "INR",
         receipt,
         key: "",
-        simulated: true
+        simulated: true,
+        reason: "Razorpay credentials are missing. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env, then restart npm start."
       });
       return;
     }
@@ -379,6 +446,62 @@ async function handleApi(req, res, url) {
       ...order,
       key: razorpayKeyId,
       simulated: false
+    });
+    return;
+  }
+
+  if (req.method === "POST" && resource === "payments" && id === "razorpay-link") {
+    const body = await readBody(req);
+    const amount = Number(body.amount || 1);
+
+    if (!razorpayKeyId || !razorpayKeySecret) {
+      sendJson(res, 400, {
+        error: "Razorpay credentials are missing. Add keys to .env and restart npm start."
+      });
+      return;
+    }
+
+    const link = await postRazorpayPaymentLink({
+      amount: amount * 100,
+      currency: "INR",
+      accept_partial: false,
+      description: body.description || "Yaara Consortium membership test payment",
+      customer: {
+        name: body.schoolName || "Yaara member school",
+        email: body.email || "admin@gmail.com"
+      },
+      notify: {
+        sms: false,
+        email: false
+      },
+      reminder_enable: false,
+      notes: {
+        school: body.schoolName || "Member school",
+        payment_type: body.type || "Membership"
+      }
+    });
+
+    sendJson(res, 200, link);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "payments" && id === "upi-intent") {
+    const body = await readBody(req);
+    const amount = Math.max(1, Number(body.amount || 1));
+    const transactionNote = body.note || "Yaara Consortium test payment";
+    const params = new URLSearchParams({
+      pa: upiPayeeId,
+      pn: upiPayeeName,
+      am: amount.toFixed(2),
+      cu: "INR",
+      tn: transactionNote
+    });
+
+    sendJson(res, 200, {
+      payeeId: upiPayeeId,
+      payeeName: upiPayeeName,
+      amount,
+      uri: `upi://pay?${params.toString()}`
     });
     return;
   }

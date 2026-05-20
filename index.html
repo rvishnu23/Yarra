@@ -232,7 +232,12 @@
                     <input type="checkbox" checked>
                     Early Years curriculum access
                   </label>
+                  <label>
+                    Test payment amount
+                    <input name="amount" type="number" min="1" value="1">
+                  </label>
                   <button class="primary-button" type="submit">Save and continue to payment</button>
+                  <button class="ghost-button hidden" id="paymentRescueButton" type="button">Cancel stuck payment screen</button>
                   <p class="form-status" aria-live="polite"></p>
                 </form>
               </section>
@@ -247,10 +252,13 @@
                 <ol class="step-list">
                   <li class="done">School details captured</li>
                   <li class="done">Membership tier selected</li>
-                  <li class="current">Payment order created</li>
+                  <li class="current">Razorpay/UPI test order for ₹1</li>
                   <li>Invoice PDF generated</li>
                   <li>School dashboard unlocked</li>
                 </ol>
+                <div class="payment-config" id="paymentConfig">
+                  Checking payment configuration...
+                </div>
               </section>
             </div>
           </section>

@@ -52,6 +52,10 @@ img {
   max-width: 100%;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .login-screen {
   min-height: 100vh;
   display: grid;
@@ -609,6 +613,25 @@ main {
   background: rgba(155, 220, 225, 0.22);
 }
 
+.payment-config {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 850;
+}
+
+.payment-config.is-live {
+  border: 1px solid rgba(38, 140, 118, 0.35);
+  background: rgba(38, 140, 118, 0.12);
+  color: var(--green);
+}
+
+.payment-config.is-missing {
+  border: 1px solid rgba(184, 74, 74, 0.28);
+  background: rgba(184, 74, 74, 0.08);
+  color: var(--red);
+}
+
 .card-grid {
   display: grid;
   gap: 16px;
@@ -938,6 +961,33 @@ th {
   gap: 6px;
   color: var(--muted);
   font-weight: 850;
+}
+
+.upi-details {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--aqua);
+}
+
+.upi-details strong {
+  font-size: 1.35rem;
+}
+
+.upi-link {
+  text-decoration: none;
+}
+
+.payment-url {
+  display: block;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--nav);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1080px) {
