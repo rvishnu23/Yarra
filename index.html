@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yaara Consortium Platform</title>
+    <meta
+      name="description"
+      content="Yaara Consortium platform prototype for schools, educators, students, vendors, events, content, and memberships."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <section class="login-screen" id="loginScreen" aria-label="Login">
+      <div class="login-brand">
+        <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
+      </div>
+      <form class="login-panel" id="loginForm">
+        <p class="eyebrow">Secure member access</p>
+        <h1>Sign in to Yaara Consortium</h1>
+        <p class="login-copy">
+          Access school onboarding, events, content, vendor partnerships, and consortium operations.
+        </p>
+        <label>
+          Email
+          <input name="email" type="email" autocomplete="email" value="admin@gmail.com" required>
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" value="password" required>
+        </label>
+        <label>
+          Role
+          <select name="role">
+            <option>Super Admin</option>
+            <option>School Admin</option>
+            <option>Teacher</option>
+            <option>Student</option>
+            <option>Vendor</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Sign in</button>
+        <button class="google-button" id="gmailLoginButton" type="button">
+          <span aria-hidden="true">G</span>
+          Continue with Gmail
+        </button>
+        <p class="login-note">Use a Gmail address. Real Google OAuth can be enabled when a Google Client ID is added.</p>
+      </form>
+    </section>
+
+    <div class="app-shell is-locked" id="appShell">
+      <aside class="sidebar" aria-label="Platform navigation">
+        <a class="brand" href="#dashboard" aria-label="Yaara dashboard">
+          <img class="brand-logo" src="assets/yarra-logo.jpeg" alt="">
+          <span>
+            <strong>Yaara</strong>
+            <small>Consortium</small>
+          </span>
+        </a>
+
+        <nav class="module-nav" aria-label="Modules">
+          <button class="nav-item is-active" type="button" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" type="button" data-view="schoolDashboard">School dashboard</button>
+          <button class="nav-item" type="button" data-view="onboarding">School onboarding</button>
+          <button class="nav-item" type="button" data-view="payments">Payments & invoices</button>
+          <button class="nav-item" type="button" data-view="students">Student users</button>
+          <button class="nav-item" type="button" data-view="events">Events</button>
+          <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
+          <button class="nav-item" type="button" data-view="library">Content library</button>
+          <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
+          <button class="nav-item" type="button" data-view="profiles">School profiles</button>
+        </nav>
+
+        <section class="membership-card" aria-label="Membership status">
+          <p>Membership</p>
+          <strong>Active until 18 May 2027</strong>
+          <span>Renewal reminders queued at 30, 14, 7, 2, and 1 day.</span>
+        </section>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Membership platform</p>
+            <h1>Yaara Consortium command centre</h1>
+          </div>
+          <div class="topbar-actions">
+            <label class="role-control">
+              <span>Role</span>
+              <select id="roleSelect" aria-label="Select role">
+                <option>Super Admin</option>
+                <option>School Admin</option>
+                <option>Teacher</option>
+                <option>Student</option>
+                <option>Vendor</option>
+              </select>
+            </label>
+            <button class="icon-button" id="notificationButton" type="button" aria-label="Notifications">
+              <span aria-hidden="true">3</span>
+            </button>
+            <button class="ghost-button" id="logoutButton" type="button">Logout</button>
+          </div>
+        </header>
+
+        <main>
+          <section class="view is-active" id="dashboard" aria-label="Dashboard">
+            <div class="metrics-grid">
+              <article class="metric">
+                <span>Active schools</span>
+                <strong>128</strong>
+                <p>12 awaiting approval</p>
+              </article>
+              <article class="metric">
+                <span>Vendors</span>
+                <strong>46</strong>
+                <p>8 featured placements</p>
+              </article>
+              <article class="metric">
+                <span>Upcoming events</span>
+                <strong>19</strong>
+                <p>4 paid registrations open</p>
+              </article>
+              <article class="metric">
+                <span>Revenue</span>
+                <strong>₹18.4L</strong>
+                <p>Memberships, events, promotions</p>
+              </article>
+            </div>
+
+            <div class="dashboard-grid">
+              <section class="panel large-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Operations</p>
+                    <h2>Platform activity</h2>
+                  </div>
+                  <button class="ghost-button" type="button" id="exportButton">Export CSV</button>
+                </div>
+                <div class="activity-list">
+                  <article>
+                    <span class="status-dot green"></span>
+                    <div>
+                      <strong>Greenfield Public School</strong>
+                      <p>Membership activated after Razorpay confirmation.</p>
+                    </div>
+                    <time>09:20</time>
+                  </article>
+                  <article>
+                    <span class="status-dot amber"></span>
+                    <div>
+                      <strong>Back to School - July 2026</strong>
+                      <p>Vendor promotion campaign awaiting admin approval.</p>
+                    </div>
+                    <time>10:05</time>
+                  </article>
+                  <article>
+                    <span class="status-dot blue"></span>
+                    <div>
+                      <strong>Leadership Conclave</strong>
+                      <p>84 seats booked, 16 seats open, waitlist enabled.</p>
+                    </div>
+                    <time>11:40</time>
+                  </article>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-heading compact">
+                  <div>
+                    <p class="eyebrow">Moderation</p>
+                    <h2>Review queue</h2>
+                  </div>
+                </div>
+                <div class="queue-list">
+                  <button type="button">2 vendor uploads</button>
+                  <button type="button">5 comments flagged</button>
+                  <button type="button">3 school profile edits</button>
+                  <button type="button">1 refund request</button>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="schoolDashboard" aria-label="School dashboard">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Member school workspace</p>
+                <h2>School dashboard</h2>
+              </div>
+              <button class="primary-button" type="button" id="inviteStudentButton">Invite student</button>
+            </div>
+            <div class="school-dashboard-grid">
+              <section class="panel school-summary-panel"></section>
+              <section class="panel school-membership-panel"></section>
+              <section class="panel school-events-panel"></section>
+              <section class="panel school-invoices-panel"></section>
+            </div>
+          </section>
+
+          <section class="view" id="onboarding" aria-label="School onboarding">
+            <div class="split-grid">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Under 10 minutes</p>
+                    <h2>School registration</h2>
+                  </div>
+                </div>
+                <form class="platform-form" id="schoolForm">
+                  <label>
+                    School name
+                    <input name="school" type="text" value="Greenfield Public School">
+                  </label>
+                  <label>
+                    Board affiliation
+                    <select name="board">
+                      <option>CBSE</option>
+                      <option>ICSE</option>
+                      <option>IB</option>
+                      <option>IGCSE</option>
+                    </select>
+                  </label>
+                  <label>
+                    School type
+                    <select name="type">
+                      <option>K-12</option>
+                      <option>Early Years</option>
+                      <option>Senior Secondary</option>
+                    </select>
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" checked>
+                    Early Years curriculum access
+                  </label>
+                  <button class="primary-button" type="submit">Save and continue to payment</button>
+                  <p class="form-status" aria-live="polite"></p>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Razorpay</p>
+                    <h2>Membership activation</h2>
+                  </div>
+                </div>
+                <ol class="step-list">
+                  <li class="done">School details captured</li>
+                  <li class="done">Membership tier selected</li>
+                  <li class="current">Payment order created</li>
+                  <li>Invoice PDF generated</li>
+                  <li>School dashboard unlocked</li>
+                </ol>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="payments" aria-label="Payments and invoices">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Razorpay workflow</p>
+                <h2>Payments and invoices</h2>
+              </div>
+              <button class="primary-button" type="button" id="paymentButton">Record payment</button>
+            </div>
+            <div class="split-grid">
+              <section class="panel payment-panel"></section>
+              <section class="panel invoice-panel"></section>
+            </div>
+          </section>
+
+          <section class="view" id="students" aria-label="Student users">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Age-gated access</p>
+                <h2>Student users</h2>
+              </div>
+              <button class="primary-button" type="button" id="studentButton">Add student</button>
+            </div>
+            <div class="student-grid" id="studentGrid"></div>
+          </section>
+
+          <section class="view" id="events" aria-label="Events">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Community programs</p>
+                <h2>Events, registrations, recordings</h2>
+              </div>
+              <button class="primary-button" type="button" id="eventButton">Create event</button>
+            </div>
+            <div class="card-grid three" id="eventsGrid"></div>
+          </section>
+
+          <section class="view" id="exchange" aria-label="Exchange programs">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Cross-school learning</p>
+                <h2>Teacher and student exchanges</h2>
+              </div>
+              <button class="primary-button" type="button" id="exchangeButton">Post exchange slot</button>
+            </div>
+            <div class="kanban">
+              <section>
+                <h3>Open</h3>
+                <article>Grade 8 science immersion <span>5 days</span></article>
+                <article>Mathematics faculty visit <span>2 weeks</span></article>
+              </section>
+              <section>
+                <h3>Under review</h3>
+                <article>Primary arts exchange <span>Teacher</span></article>
+              </section>
+              <section>
+                <h3>Matched</h3>
+                <article>Student leadership shadowing <span>Delhi - Pune</span></article>
+              </section>
+              <section>
+                <h3>Completed</h3>
+                <article>Early years curriculum lab <span>Chennai</span></article>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="library" aria-label="Content library">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Searchable resources</p>
+                <h2>Workshops, podcasts, webinars, articles</h2>
+              </div>
+              <label class="search-field">
+                <span>Search</span>
+                <input id="librarySearch" type="search" placeholder="Search by title, tag, speaker">
+              </label>
+            </div>
+            <div class="filter-row" aria-label="Library filters">
+              <button class="filter-chip is-active" type="button" data-filter="All">All</button>
+              <button class="filter-chip" type="button" data-filter="Recorded Workshop">Recorded Workshop</button>
+              <button class="filter-chip" type="button" data-filter="Podcast">Podcast</button>
+              <button class="filter-chip" type="button" data-filter="Article">Article</button>
+              <button class="filter-chip" type="button" data-filter="Webinar">Webinar</button>
+            </div>
+            <div class="card-grid three" id="libraryGrid"></div>
+          </section>
+
+          <section class="view" id="vendors" aria-label="Vendor marketplace">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Curated procurement</p>
+                <h2>Vendor directory and promotions</h2>
+              </div>
+              <label class="search-field">
+                <span>Category</span>
+                <select id="vendorCategory">
+                  <option>All categories</option>
+                  <option>Uniforms</option>
+                  <option>Books & Stationery</option>
+                  <option>EdTech</option>
+                  <option>Furniture & Fixtures</option>
+                  <option>Transport</option>
+                  <option>Sports Equipment</option>
+                </select>
+              </label>
+            </div>
+            <section class="promotion-banner">
+              <div>
+                <p class="eyebrow">Seasonal campaign</p>
+                <h3>Back to School - July 2026</h3>
+                <p>Homepage banner, category banner, email mention, and sidebar spotlight placements are queued for approval.</p>
+              </div>
+              <button class="ghost-button dark" type="button">Review campaign</button>
+            </section>
+            <div class="card-grid three" id="vendorGrid"></div>
+          </section>
+
+          <section class="view" id="profiles" aria-label="School profiles">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Members only</p>
+                <h2>School profile pages</h2>
+              </div>
+            </div>
+            <div class="profile-layout">
+              <article class="school-profile">
+                <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=900&q=80" alt="School campus with students walking outside">
+                <div>
+                  <p class="eyebrow">CBSE - Bengaluru</p>
+                  <h3>Greenfield Public School</h3>
+                  <p>Known for project-based STEM learning, teacher-led research circles, and student leadership exchange cohorts.</p>
+                </div>
+              </article>
+              <section class="panel">
+                <h3>Profile highlights</h3>
+                <ul class="clean-list">
+                  <li>Leadership team and contact details visible to member schools</li>
+                  <li>Hosted events and exchange opportunities feed into the page</li>
+                  <li>Achievements editable by the School Admin</li>
+                </ul>
+              </section>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="script.js"></script>
+  </body>
+</html>
