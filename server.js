@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
-import { copyFile, readFile, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, copyFile, readFile, rename, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,19 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDir = join(root, "data");
 const dbPath = join(dataDir, "db.json");
+const auditLogPath = join(dataDir, "audit.log");
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
+const databaseUrl = process.env.DATABASE_URL || "";
+const usePostgres = Boolean(databaseUrl);
+const razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const awsRegion = process.env.AWS_REGION || "ap-south-1";
+const s3Bucket = process.env.AWS_S3_BUCKET || "";
+const s3PublicBaseUrl = process.env.AWS_S3_PUBLIC_BASE_URL || "";
+let pgPoolPromise;
+let googleClientPromise;
+let s3ClientPromise;
 
 async function loadEnvFile() {
   const envPath = join(root, ".env");
@@ -37,7 +49,13 @@ const upiPayeeId = process.env.UPI_PAYEE_ID || "vishnuaravindhr-1@okicici";
 const upiPayeeName = process.env.UPI_PAYEE_NAME || "Yarra Education Group";
 const defaultSessionTimeoutMinutes = clampNumber(process.env.SESSION_TIMEOUT_MINUTES || 30, 1, 240);
 const sessionTimeoutOptions = [1, 5, 15, 30, 60, 120];
+const maxRequestBytes = clampNumber(process.env.MAX_REQUEST_BYTES || 10 * 1024 * 1024, 1024, 50 * 1024 * 1024);
+const authRateLimitWindowMs = clampNumber(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 60 * 1000, 1000, 60 * 60 * 1000);
+const authRateLimitMax = clampNumber(process.env.AUTH_RATE_LIMIT_MAX || 10, 1, 200);
+const apiRateLimitWindowMs = clampNumber(process.env.API_RATE_LIMIT_WINDOW_MS || 60 * 1000, 1000, 60 * 60 * 1000);
+const apiRateLimitMax = clampNumber(process.env.API_RATE_LIMIT_MAX || 240, 10, 5000);
 const sessions = new Map();
+const rateLimits = new Map();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -304,36 +322,600 @@ const seed = {
   uploadHistory: []
 };
 
+const emptyState = {
+  schools: [],
+  students: [],
+  teachers: [],
+  vendors: [],
+  events: [],
+  exchanges: [],
+  content: [],
+  promotions: [],
+  notifications: [],
+  payments: [],
+  uploadHistory: []
+};
+
 async function ensureDb() {
   if (!existsSync(dataDir)) {
     await mkdir(dataDir, { recursive: true });
   }
+  if (usePostgres) {
+    await queryDb("SELECT 1");
+  }
   if (!existsSync(dbPath)) {
-    await writeJson(dbPath, seed);
+    await writeJson(dbPath, emptyState);
+  }
+  if (!existsSync(auditLogPath)) {
+    await writeFile(auditLogPath, "", "utf8");
   }
 }
 
 async function readJson(path) {
+  if (usePostgres && path === dbPath) {
+    return readStateFromPostgres();
+  }
   return JSON.parse(await readFile(path, "utf8"));
 }
 
 async function writeJson(path, value) {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  if (usePostgres && path === dbPath) {
+    await persistStateToPostgres(value);
+    return;
+  }
+  const tempPath = `${path}.${Date.now()}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tempPath, path);
 }
 
-async function readBody(req) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
+async function pgPool() {
+  if (!usePostgres) return null;
+  if (!pgPoolPromise) {
+    pgPoolPromise = import("pg").then(({ Pool }) => new Pool({
+      connectionString: databaseUrl,
+      ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined
+    }));
   }
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return pgPoolPromise;
+}
+
+async function queryDb(text, params = []) {
+  const pool = await pgPool();
+  if (!pool) throw new Error("DATABASE_URL is required for PostgreSQL mode.");
+  return pool.query(text, params);
+}
+
+async function withTransaction(work) {
+  const pool = await pgPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function rowDate(value) {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+async function readStateFromPostgres() {
+  const [
+    schools,
+    vendors,
+    events,
+    content,
+    payments,
+    users,
+    teachers,
+    exchanges,
+    promotions,
+    notifications,
+    uploadHistory
+  ] = await Promise.all([
+    queryDb("SELECT * FROM schools ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM vendors ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM events ORDER BY event_date DESC"),
+    queryDb("SELECT * FROM content_library ORDER BY published_at DESC"),
+    queryDb("SELECT * FROM payments ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM users ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM teachers ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM exchanges ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM promotions ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM notifications ORDER BY created_at DESC"),
+    queryDb("SELECT * FROM upload_history ORDER BY created_at DESC")
+  ]);
+
+  const students = users.rows.filter((user) => user.role === "Student").map((user) => ({
+    id: user.id,
+    name: user.display_name,
+    grade: user.grade || "Grade 8",
+    age: user.age || 13,
+    schoolId: user.school_id,
+    guardianEmail: user.guardian_email || "",
+    status: user.status,
+    access: ["Competitions", "Student exchange", "Age-gated content"]
+  }));
+
+  return {
+    schools: schools.rows.map((school) => ({
+      id: school.id,
+      name: school.name,
+      city: school.city || "",
+      board: school.board_affiliation,
+      type: school.school_type || "K-12",
+      contact: school.contact_email || "",
+      earlyYears: school.has_early_years_curriculum,
+      status: school.membership_status,
+      membershipExpiry: rowDate(school.membership_expiry),
+      achievements: school.achievements || []
+    })),
+    students,
+    teachers: teachers.rows.map((teacher) => ({
+      id: teacher.id,
+      employeeId: teacher.employee_id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      designation: teacher.designation,
+      isHrt: teacher.is_hrt,
+      campus: teacher.campus,
+      grades: teacher.grades || [],
+      status: teacher.status
+    })),
+    vendors: vendors.rows.map((vendor) => ({
+      id: vendor.id,
+      name: vendor.company_name,
+      category: vendor.category,
+      contact: vendor.contact_email || "",
+      offer: vendor.offer || "",
+      status: vendor.is_approved ? "Approved" : "Pending approval",
+      featured: vendor.is_featured
+    })),
+    events: events.rows.map((event) => ({
+      id: event.id,
+      title: event.title,
+      type: event.event_type,
+      format: event.format,
+      date: rowDate(event.event_date),
+      host: event.host,
+      capacity: event.capacity,
+      registered: event.registered,
+      paid: event.is_paid,
+      recording: event.has_recording,
+      materials: event.has_materials
+    })),
+    exchanges: exchanges.rows.map((exchange) => ({
+      id: exchange.id,
+      title: exchange.title,
+      type: exchange.exchange_type,
+      subject: exchange.subject,
+      duration: exchange.duration,
+      fromSchool: exchange.from_school,
+      status: exchange.status
+    })),
+    content: content.rows.map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.content_type,
+      speaker: item.speaker || "",
+      tags: item.tags || [],
+      audience: item.audience || ["School Admin", "Teacher"],
+      minAge: item.min_age,
+      maxAge: item.max_age,
+      restrictedToEarlyYears: (item.tags || []).includes("Yarra Early Years"),
+      ageGatedRestricted: item.age_gated_restricted,
+      vendorPromotional: item.is_vendor_promotional,
+      comments: 0
+    })),
+    promotions: promotions.rows.map((promotion) => ({
+      id: promotion.id,
+      vendorId: promotion.vendor_id,
+      name: promotion.name,
+      placement: promotion.placement,
+      status: promotion.status
+    })),
+    notifications: notifications.rows.map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      audience: notification.audience,
+      unread: notification.unread
+    })),
+    payments: payments.rows.map((payment) => ({
+      id: payment.id,
+      schoolId: payment.school_id,
+      vendorId: payment.vendor_id,
+      type: payment.payment_type,
+      amount: Number(payment.amount),
+      status: payment.status,
+      invoice: payment.invoice,
+      method: payment.method,
+      gatewayPaymentId: payment.gateway_payment_id,
+      gatewayOrderId: payment.gateway_order_id,
+      createdAt: rowDate(payment.created_at)
+    })),
+    uploadHistory: uploadHistory.rows.map((upload) => ({
+      uploadType: upload.upload_type,
+      fileName: upload.file_name,
+      recordCount: upload.record_count,
+      errorCount: upload.error_count,
+      status: upload.status,
+      createdAt: upload.created_at
+    }))
+  };
+}
+
+async function persistStateToPostgres(state) {
+  await withTransaction(async (client) => {
+    for (const school of state.schools || []) {
+      await client.query(
+        `INSERT INTO schools (id, name, board_affiliation, city, school_type, contact_email, has_early_years_curriculum, membership_status, membership_expiry, achievements)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           board_affiliation = EXCLUDED.board_affiliation,
+           city = EXCLUDED.city,
+           school_type = EXCLUDED.school_type,
+           contact_email = EXCLUDED.contact_email,
+           has_early_years_curriculum = EXCLUDED.has_early_years_curriculum,
+           membership_status = EXCLUDED.membership_status,
+           membership_expiry = EXCLUDED.membership_expiry,
+           achievements = EXCLUDED.achievements,
+           updated_at = now()`,
+        [school.id, school.name, school.board || school.boardAffiliation || "CBSE", school.city || "", school.type || "K-12", school.contact || "", Boolean(school.earlyYears), school.status || "Active", school.membershipExpiry || null, JSON.stringify(school.achievements || [])]
+      );
+    }
+
+    for (const vendor of state.vendors || []) {
+      await client.query(
+        `INSERT INTO vendors (id, company_name, category, contact_email, offer, is_approved, is_featured, promotion_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET
+           company_name = EXCLUDED.company_name,
+           category = EXCLUDED.category,
+           contact_email = EXCLUDED.contact_email,
+           offer = EXCLUDED.offer,
+           is_approved = EXCLUDED.is_approved,
+           is_featured = EXCLUDED.is_featured,
+           promotion_status = EXCLUDED.promotion_status,
+           updated_at = now()`,
+        [vendor.id, vendor.name || vendor.companyName, vendor.category || "EdTech", vendor.contact || "", vendor.offer || "", vendor.status === "Approved" || vendor.isApproved, Boolean(vendor.featured), vendor.promotionStatus || "Draft"]
+      );
+    }
+
+    for (const student of state.students || []) {
+      await client.query(
+        `INSERT INTO users (id, email, display_name, role, school_id, grade, age, guardian_email, status)
+         VALUES ($1,$2,$3,'Student',$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           school_id = EXCLUDED.school_id,
+           grade = EXCLUDED.grade,
+           age = EXCLUDED.age,
+           guardian_email = EXCLUDED.guardian_email,
+           status = EXCLUDED.status,
+           updated_at = now()`,
+        [student.id, `${student.id}@student.local`, student.name, student.schoolId || state.schools?.[0]?.id, student.grade || "", Number(student.age || 13), student.guardianEmail || "", student.status || "Invited"]
+      );
+    }
+
+    for (const teacher of state.teachers || []) {
+      await client.query(
+        `INSERT INTO teachers (id, school_id, employee_id, name, email, role, designation, is_hrt, campus, grades, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET
+           school_id = EXCLUDED.school_id,
+           employee_id = EXCLUDED.employee_id,
+           name = EXCLUDED.name,
+           email = EXCLUDED.email,
+           role = EXCLUDED.role,
+           designation = EXCLUDED.designation,
+           is_hrt = EXCLUDED.is_hrt,
+           campus = EXCLUDED.campus,
+           grades = EXCLUDED.grades,
+           status = EXCLUDED.status`,
+        [teacher.id, teacher.schoolId || state.schools?.[0]?.id, teacher.employeeId || "", teacher.name, teacher.email || "", teacher.role || "teacher", teacher.designation || "", Boolean(teacher.isHrt), teacher.campus || "", teacher.grades || [], teacher.status || "Active"]
+      );
+    }
+
+    for (const event of state.events || []) {
+      await client.query(
+        `INSERT INTO events (id, title, event_type, format, event_date, host, capacity, registered, is_paid, has_recording, has_materials)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET
+           title = EXCLUDED.title,
+           event_type = EXCLUDED.event_type,
+           format = EXCLUDED.format,
+           event_date = EXCLUDED.event_date,
+           host = EXCLUDED.host,
+           capacity = EXCLUDED.capacity,
+           registered = EXCLUDED.registered,
+           is_paid = EXCLUDED.is_paid,
+           has_recording = EXCLUDED.has_recording,
+           has_materials = EXCLUDED.has_materials`,
+        [event.id, event.title, event.type || "Workshop", event.format || "Virtual", event.date || new Date().toISOString().slice(0, 10), event.host || "Yarra Consortium", Number(event.capacity || 100), Number(event.registered || 0), Boolean(event.paid), Boolean(event.recording), Boolean(event.materials)]
+      );
+    }
+
+    for (const item of state.content || []) {
+      await client.query(
+        `INSERT INTO content_library (id, title, content_type, speaker, tags, audience, min_age, max_age, age_gated_restricted, is_vendor_promotional)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (id) DO UPDATE SET
+           title = EXCLUDED.title,
+           content_type = EXCLUDED.content_type,
+           speaker = EXCLUDED.speaker,
+           tags = EXCLUDED.tags,
+           audience = EXCLUDED.audience,
+           min_age = EXCLUDED.min_age,
+           max_age = EXCLUDED.max_age,
+           age_gated_restricted = EXCLUDED.age_gated_restricted,
+           is_vendor_promotional = EXCLUDED.is_vendor_promotional`,
+        [item.id, item.title, item.type || "Article", item.speaker || "", item.tags || [], item.audience || ["School Admin", "Teacher"], Number(item.minAge || 0), Number(item.maxAge || 99), Boolean(item.ageGatedRestricted), Boolean(item.vendorPromotional)]
+      );
+    }
+
+    for (const payment of state.payments || []) {
+      await client.query(
+        `INSERT INTO payments (id, school_id, vendor_id, payment_type, amount, status, invoice, method, gateway_payment_id, gateway_order_id, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           invoice = EXCLUDED.invoice,
+           method = EXCLUDED.method,
+           gateway_payment_id = EXCLUDED.gateway_payment_id,
+           gateway_order_id = EXCLUDED.gateway_order_id`,
+        [payment.id, payment.schoolId || null, payment.vendorId || null, payment.type || "Membership", Number(payment.amount || 0), payment.status || "Created", payment.invoice || "", payment.method || "", payment.gatewayPaymentId || "", payment.gatewayOrderId || "", payment.createdAt || new Date().toISOString()]
+      );
+    }
+  });
+}
+
+async function googleClient() {
+  if (!googleClientId) return null;
+  if (!googleClientPromise) {
+    googleClientPromise = import("google-auth-library").then(({ OAuth2Client }) => new OAuth2Client(googleClientId));
+  }
+  return googleClientPromise;
+}
+
+async function verifyGoogleCredential(credential) {
+  const client = await googleClient();
+  if (!client) return null;
+  const ticket = await client.verifyIdToken({ idToken: credential, audience: googleClientId });
+  const payload = ticket.getPayload();
+  if (!payload?.email_verified) {
+    const error = new Error("Google account email is not verified.");
+    error.statusCode = 401;
+    throw error;
+  }
+  return {
+    email: sanitizeEmail(payload.email),
+    name: payload.name || payload.email?.split("@")[0] || "Yarra User"
+  };
+}
+
+async function resolveDbUser(email, requestedRole, requestedSchoolId, requestedVendorId) {
+  if (!usePostgres) return null;
+  const existing = await queryDb("SELECT * FROM users WHERE email = $1 LIMIT 1", [email]);
+  if (existing.rows[0]) return existing.rows[0];
+
+  const role = normalizeRole(requestedRole || "Super Admin");
+  const userId = `user-${slug(email)}`;
+  if (role === "Super Admin") {
+    await queryDb(
+      "INSERT INTO users (id, email, display_name, role) VALUES ($1,$2,$3,$4) ON CONFLICT (email) DO NOTHING",
+      [userId, email, email.split("@")[0], role]
+    );
+    return (await queryDb("SELECT * FROM users WHERE email = $1 LIMIT 1", [email])).rows[0];
+  }
+
+  const schoolId = requestedSchoolId || (await queryDb("SELECT id FROM schools ORDER BY created_at LIMIT 1")).rows[0]?.id;
+  const vendorId = requestedVendorId || (await queryDb("SELECT id FROM vendors ORDER BY created_at LIMIT 1")).rows[0]?.id;
+  await queryDb(
+    `INSERT INTO users (id, email, display_name, role, school_id, vendor_id)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (email) DO NOTHING`,
+    [userId, email, email.split("@")[0], role, ["School Admin", "Teacher", "Student"].includes(role) ? schoolId : null, role === "Vendor" ? vendorId : null]
+  );
+  return (await queryDb("SELECT * FROM users WHERE email = $1 LIMIT 1", [email])).rows[0];
+}
+
+async function s3Client() {
+  if (!s3Bucket) return null;
+  if (!s3ClientPromise) {
+    s3ClientPromise = import("@aws-sdk/client-s3").then(({ S3Client }) => new S3Client({ region: awsRegion }));
+  }
+  return s3ClientPromise;
+}
+
+async function uploadAssetToS3({ key, body, contentType, fileName, purpose, user }) {
+  const client = await s3Client();
+  if (!client) return null;
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  await client.send(new PutObjectCommand({
+    Bucket: s3Bucket,
+    Key: key,
+    Body: body,
+    ContentType: contentType
+  }));
+
+  if (usePostgres) {
+    await queryDb(
+      `INSERT INTO file_assets (owner_user_id, school_id, vendor_id, bucket, object_key, file_name, content_type, size_bytes, purpose)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [user?.id || null, user?.schoolId || null, user?.vendorId || null, s3Bucket, key, fileName, contentType, Buffer.byteLength(body), purpose || "general"]
+    );
+  }
+
+  return {
+    bucket: s3Bucket,
+    key,
+    url: s3PublicBaseUrl ? `${s3PublicBaseUrl.replace(/\/$/, "")}/${key}` : `s3://${s3Bucket}/${key}`
+  };
+}
+
+function verifyRazorpayWebhook(rawBody, signature) {
+  if (!razorpayWebhookSecret) {
+    const error = new Error("Razorpay webhook secret is not configured.");
+    error.statusCode = 503;
+    throw error;
+  }
+  const digest = createHmac("sha256", razorpayWebhookSecret).update(rawBody).digest("hex");
+  const actual = Buffer.from(String(signature || ""), "hex");
+  const expected = Buffer.from(digest, "hex");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    const error = new Error("Invalid Razorpay webhook signature.");
+    error.statusCode = 401;
+    throw error;
+  }
+}
+
+function requestClientId(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || req.socket.remoteAddress || "unknown";
+}
+
+function enforceRateLimit(req, res, scope, max, windowMs) {
+  const key = `${scope}:${requestClientId(req)}`;
+  const now = Date.now();
+  const current = rateLimits.get(key);
+  if (!current || current.resetAt <= now) {
+    rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  current.count += 1;
+  if (current.count > max) {
+    res.setHeader("Retry-After", String(Math.ceil((current.resetAt - now) / 1000)));
+    sendJson(res, 429, { error: "Too many requests. Please wait and try again." });
+    return false;
+  }
+  return true;
+}
+
+function cleanupRuntimeStores() {
+  const now = Date.now();
+  for (const [key, session] of sessions.entries()) {
+    if (Date.parse(session.expiresAt) <= now) sessions.delete(key);
+  }
+  for (const [key, window] of rateLimits.entries()) {
+    if (window.resetAt <= now) rateLimits.delete(key);
+  }
 }
 
 async function readBuffer(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxRequestBytes) {
+      const error = new Error("Request body is too large.");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks);
+}
+
+async function readBody(req) {
+  const buffer = await readBuffer(req);
+  if (!buffer.length) return {};
+  try {
+    return JSON.parse(buffer.toString("utf8"));
+  } catch {
+    const error = new Error("Invalid JSON request body.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function safeAuditValue(value) {
+  if (value === undefined || value === null) return value;
+  if (typeof value === "string") return value.slice(0, 180);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map(safeAuditValue);
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !/secret|token|password|key/i.test(key))
+      .map(([key, entry]) => [key, safeAuditValue(entry)])
+  );
+}
+
+async function audit(event, req, user, details = {}) {
+  const entry = {
+    at: new Date().toISOString(),
+    event,
+    actor: user?.email || "anonymous",
+    role: user?.role || null,
+    ip: requestClientId(req),
+    method: req.method,
+    path: req.url?.split("?")[0],
+    details: safeAuditValue(details)
+  };
+  await appendFile(auditLogPath, `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+function isWriteRequest(req) {
+  return !["GET", "HEAD", "OPTIONS"].includes(req.method);
+}
+
+function setSecurityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' https://checkout.razorpay.com; connect-src 'self' https://api.razorpay.com https://*.razorpay.com; img-src 'self' data: https://images.unsplash.com; style-src 'self' 'unsafe-inline'; frame-src https://api.razorpay.com https://*.razorpay.com; form-action 'self'");
+}
+
+function sendJson(res, status, body) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.writeHead(status);
+  res.end(JSON.stringify(body));
+}
+
+function sanitizeText(value, fallback = "") {
+  return String(value || fallback).trim().replace(/[<>]/g, "").slice(0, 180);
+}
+
+function sanitizeEmail(value) {
+  return String(value || "").trim().toLowerCase().slice(0, 180);
+}
+
+function requireFields(body, fields) {
+  return fields.filter((field) => !String(body[field] || "").trim());
+}
+
+function assertRequired(body, fields) {
+  const missing = requireFields(body, fields);
+  if (missing.length) {
+    const error = new Error(`Missing required fields: ${missing.join(", ")}`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function validateEmailField(value, label = "email") {
+  const email = sanitizeEmail(value);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const error = new Error(`Please provide a valid ${label}.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return email;
+}
+
+async function readJsonBody(req, fields = []) {
+  const body = await readBody(req);
+  assertRequired(body, fields);
+  return body;
 }
 
 function parseMultipart(req, buffer) {
@@ -534,9 +1116,36 @@ function postRazorpayPaymentLink(paymentLink) {
   });
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(body));
+function notifyRazorpayPaymentLink(linkId, medium = "email") {
+  return new Promise((resolve, reject) => {
+    const auth = Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString("base64");
+    const request = httpsRequest(
+      {
+        hostname: "api.razorpay.com",
+        path: `/v1/payment_links/${encodeURIComponent(linkId)}/notify_by/${encodeURIComponent(medium)}`,
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/json",
+          "Content-Length": 0
+        }
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            resolve(body ? JSON.parse(body) : { notified: true });
+          } else {
+            reject(new Error(body || "Razorpay payment link email notification failed"));
+          }
+        });
+      }
+    );
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 function clampNumber(value, min, max) {
@@ -574,7 +1183,7 @@ function renewSession(session, timeoutMinutes = session.timeoutMinutes) {
   session.expiresAt = new Date(now + session.timeoutMinutes * 60 * 1000).toISOString();
 }
 
-function createSession({ email, name, provider, role, timeoutMinutes }) {
+function createSession({ email, name, provider, role, timeoutMinutes, userId, schoolId, vendorId }) {
   const token = randomBytes(32).toString("base64url");
   const now = new Date().toISOString();
   const session = {
@@ -582,6 +1191,9 @@ function createSession({ email, name, provider, role, timeoutMinutes }) {
     name,
     provider,
     role: normalizeRole(role),
+    userId: userId || null,
+    schoolId: schoolId || "school-greenfield",
+    vendorId: vendorId || "vendor-learngrid",
     timeoutMinutes: normalizeTimeoutMinutes(timeoutMinutes),
     createdAt: now,
     lastSeenAt: now,
@@ -637,6 +1249,27 @@ function createId(prefix, name) {
   return `${prefix}-${slug(name)}-${Date.now().toString(36)}`;
 }
 
+async function addNotification(title, audience = "Super Admin") {
+  const notification = {
+    id: createId("note", title),
+    title,
+    audience,
+    unread: true,
+    createdAt: new Date().toISOString()
+  };
+  if (usePostgres) {
+    await queryDb(
+      "INSERT INTO notifications (id, title, audience, unread) VALUES ($1,$2,$3,true)",
+      [notification.id, notification.title, notification.audience]
+    );
+  } else {
+    db.notifications ||= [];
+    db.notifications.unshift(notification);
+    await writeJson(dbPath, db);
+  }
+  return notification;
+}
+
 function metrics(db) {
   const activeSchools = db.schools.filter((school) => school.status === "Active").length;
   const totalRevenue = db.payments
@@ -673,6 +1306,8 @@ function normalizeRole(role) {
 function userFromRequest(req, url, session) {
   const role = normalizeRole(session?.role || req.headers["x-user-role"] || url.searchParams.get("role"));
   return {
+    id: session?.userId || null,
+    email: session?.email || null,
     role,
     schoolId: session?.schoolId || req.headers["x-school-id"] || "school-greenfield",
     studentId: session?.studentId || req.headers["x-student-id"] || "student-anaya",
@@ -768,11 +1403,14 @@ function filteredState(db, user) {
   }
 
   if (user.role === "School Admin") {
+    const visibleSchoolIds = db.schools
+      .filter((school) => school.id === user.schoolId || ["Active", "Payment pending"].includes(school.status))
+      .map((school) => school.id);
     return {
       ...full,
-      schools: db.schools.filter((school) => school.id === user.schoolId || school.status === "Active"),
+      schools: db.schools.filter((school) => visibleSchoolIds.includes(school.id)),
       students: db.students.filter((student) => student.schoolId === user.schoolId),
-      payments: db.payments.filter((payment) => payment.schoolId === user.schoolId)
+      payments: db.payments.filter((payment) => visibleSchoolIds.includes(payment.schoolId))
     };
   }
 
@@ -782,6 +1420,17 @@ function filteredState(db, user) {
 async function handleApi(req, res, url) {
   const db = await readJson(dbPath);
   const [, , resource, id, action] = url.pathname.split("/");
+
+  if (req.method === "GET" && resource === "health") {
+    sendJson(res, 200, {
+      status: "ok",
+      app: "yaara-consortium",
+      time: new Date().toISOString(),
+      sessions: sessions.size,
+      storage: existsSync(dbPath) ? "ready" : "missing"
+    });
+    return;
+  }
 
   if (req.method === "GET" && resource === "auth" && id === "session-config") {
     sendJson(res, 200, {
@@ -795,19 +1444,29 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && resource === "auth" && id === "gmail") {
     const body = await readBody(req);
-    const email = String(body.email || "").trim().toLowerCase();
+    const googleProfile = body.credential || body.idToken ? await verifyGoogleCredential(body.credential || body.idToken) : null;
+    const email = googleProfile?.email || String(body.email || "").trim().toLowerCase();
     if (!email.endsWith("@gmail.com")) {
       sendJson(res, 400, { error: "Please use a Gmail account." });
       return;
     }
-    const name = email.split("@")[0].replace(/[._-]+/g, " ");
+    if (googleClientId && !googleProfile) {
+      sendJson(res, 401, { error: "Google OAuth credential is required." });
+      return;
+    }
+    const dbUser = await resolveDbUser(email, body.role, body.schoolId, body.vendorId);
+    const name = googleProfile?.name || dbUser?.display_name || email.split("@")[0].replace(/[._-]+/g, " ");
     const { token, session } = createSession({
       email,
       name,
-      provider: "gmail",
-      role: body.role || "School Admin",
-      timeoutMinutes: body.timeoutMinutes
+      provider: googleProfile ? "google-oauth" : "gmail-dev",
+      role: dbUser?.role || body.role || "School Admin",
+      timeoutMinutes: body.timeoutMinutes,
+      userId: dbUser?.id || null,
+      schoolId: dbUser?.school_id || body.schoolId,
+      vendorId: dbUser?.vendor_id || body.vendorId
     });
+    await audit("auth.login", req, session, { email, role: session.role, timeoutMinutes: session.timeoutMinutes });
     sendJson(res, 200, {
       email,
       name,
@@ -851,6 +1510,7 @@ async function handleApi(req, res, url) {
     const sessionContext = requireSession(req, res, { renew: false });
     if (!sessionContext) return;
     sessions.delete(sessionContext.hashedToken);
+    await audit("auth.logout", req, sessionContext.session);
     sendJson(res, 200, { signedOut: true });
     return;
   }
@@ -865,12 +1525,211 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && resource === "payments" && id === "webhook") {
+    const rawBody = await readBuffer(req);
+    verifyRazorpayWebhook(rawBody, req.headers["x-razorpay-signature"]);
+    const event = JSON.parse(rawBody.toString("utf8"));
+    const payload = event.payload?.payment?.entity || event.payload?.payment_link?.entity || event.payload?.order?.entity || {};
+    const notes = payload.notes || {};
+    const gatewayPaymentId = payload.id || "";
+    const gatewayOrderId = payload.order_id || payload.reference_id || "";
+    const gatewayEventId = event.id || `${event.event}-${gatewayPaymentId || gatewayOrderId}`;
+    const amount = Number(payload.amount || payload.amount_paid || 0) / 100;
+    const schoolId = notes.school_id || notes.schoolId || null;
+    const vendorId = notes.vendor_id || notes.vendorId || null;
+    const schoolName = notes.school || notes.school_name || "member school";
+    const isPaidEvent = ["payment.captured", "payment_link.paid", "order.paid"].includes(event.event);
+
+    if (usePostgres && isPaidEvent) {
+      await withTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO payments (id, school_id, vendor_id, payment_type, amount, status, method, gateway_payment_id, gateway_order_id, gateway_event_id)
+           VALUES ($1,$2,$3,$4,$5,'Paid','Razorpay',$6,$7,$8)
+           ON CONFLICT (gateway_event_id) DO NOTHING`,
+          [`pay-${slug(gatewayEventId)}`, schoolId, vendorId, notes.payment_type || "Membership", amount || 1, gatewayPaymentId, gatewayOrderId, gatewayEventId]
+        );
+        if (schoolId) {
+          await client.query("UPDATE schools SET membership_status = 'Active', updated_at = now() WHERE id = $1", [schoolId]);
+        }
+        if (vendorId) {
+          await client.query("UPDATE vendors SET promotion_status = 'Paid', updated_at = now() WHERE id = $1", [vendorId]);
+        }
+      });
+    }
+
+    if (!usePostgres && isPaidEvent) {
+      const school = schoolId ? db.schools.find((item) => item.id === schoolId) : null;
+      if (school) {
+        school.status = "Active";
+        school.membershipExpiry = "2027-05-18";
+      }
+      const existingPayment = db.payments.find((item) =>
+        (gatewayEventId && item.gatewayEventId === gatewayEventId) ||
+        (gatewayOrderId && item.gatewayOrderId === gatewayOrderId) ||
+        (gatewayPaymentId && item.gatewayPaymentId === gatewayPaymentId)
+      );
+      if (existingPayment) {
+        existingPayment.status = "Paid";
+        existingPayment.method = "Razorpay";
+        existingPayment.gatewayPaymentId = gatewayPaymentId || existingPayment.gatewayPaymentId || "";
+        existingPayment.gatewayOrderId = gatewayOrderId || existingPayment.gatewayOrderId || "";
+        existingPayment.gatewayEventId = gatewayEventId;
+      } else {
+        db.payments.unshift({
+          id: createId("pay", school?.name || notes.payment_type || "payment"),
+          schoolId,
+          vendorId,
+          type: notes.payment_type || "Membership",
+          amount: amount || 1,
+          status: "Paid",
+          invoice: `YAARA-INV-${1000 + db.payments.length + 1}`,
+          method: "Razorpay",
+          gatewayPaymentId,
+          gatewayOrderId,
+          gatewayEventId,
+          createdAt: new Date().toISOString().slice(0, 10)
+        });
+      }
+      await writeJson(dbPath, db);
+    }
+
+    if (isPaidEvent) {
+      await addNotification(`Payment received for ${schoolName}. Membership activation can be completed.`, "Super Admin");
+      await addNotification(`Payment received for ${schoolName}. Membership activation can be completed.`, "School Admin");
+    }
+
+    await audit("payments.webhook", req, null, { event: event.event, gatewayEventId, schoolId, vendorId, verified: true });
+    sendJson(res, 200, { received: true });
+    return;
+  }
+
   const sessionContext = requireSession(req, res);
   if (!sessionContext) return;
   const user = userFromRequest(req, url, sessionContext.session);
 
   if (req.method === "GET" && resource === "state") {
     sendJson(res, 200, filteredState(db, user));
+    return;
+  }
+
+  if (req.method === "GET" && resource === "feed") {
+    if (!usePostgres) {
+      const state = filteredState(db, user);
+      const items = [
+        ...state.events.map((event) => ({ source: "event", id: event.id, title: event.title, body: `${event.type} - ${event.format}`, occurredAt: event.date })),
+        ...state.content.map((item) => ({ source: "content", id: item.id, title: item.title, body: item.type, occurredAt: new Date().toISOString() }))
+      ].sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+      sendJson(res, 200, { items });
+      return;
+    }
+
+    const schoolResult = user.schoolId ? await queryDb("SELECT has_early_years_curriculum FROM schools WHERE id = $1", [user.schoolId]) : { rows: [] };
+    const hasEarlyYears = Boolean(schoolResult.rows[0]?.has_early_years_curriculum);
+    const feed = await queryDb(
+      `WITH unified AS (
+         SELECT 'event' AS source, id, title, event_type AS body, event_date::timestamptz AS occurred_at, ARRAY[]::text[] AS tags, false AS age_gated_restricted, false AS is_vendor_promotional, ARRAY['School Admin','Teacher','Student']::text[] AS audience
+         FROM events
+         UNION ALL
+         SELECT 'content' AS source, id, title, content_type AS body, published_at AS occurred_at, tags, age_gated_restricted, is_vendor_promotional, audience
+         FROM content_library
+         UNION ALL
+         SELECT 'school_announcement' AS source, id, title, body, created_at AS occurred_at, ARRAY[]::text[] AS tags, false AS age_gated_restricted, false AS is_vendor_promotional, audience
+         FROM school_announcements
+       )
+       SELECT source, id, title, body, occurred_at AS "occurredAt"
+       FROM unified
+       WHERE $1 = ANY(audience)
+         AND NOT ($1 = 'Student' AND (age_gated_restricted = true OR is_vendor_promotional = true))
+         AND NOT ($1 IN ('School Admin','Teacher') AND 'Yarra Early Years' = ANY(tags) AND $2 = false)
+       ORDER BY occurred_at DESC
+       LIMIT 80`,
+      [user.role, hasEarlyYears]
+    );
+    sendJson(res, 200, { items: feed.rows });
+    return;
+  }
+
+  if (req.method === "POST" && resource === "rfq" && id === "cart") {
+    if (!usePostgres) {
+      sendJson(res, 503, { error: "RFQ cart requires PostgreSQL mode." });
+      return;
+    }
+    if (user.role !== "School Admin" && user.role !== "Super Admin") return deny(res);
+    const body = await readJsonBody(req, ["vendorId"]);
+    const cart = await withTransaction(async (client) => {
+      const active = await client.query(
+        `INSERT INTO rfq_carts (school_id, created_by)
+         VALUES ($1,$2)
+         ON CONFLICT DO NOTHING
+         RETURNING *`,
+        [user.schoolId, user.id]
+      );
+      const cartRow = active.rows[0] || (await client.query(
+        "SELECT * FROM rfq_carts WHERE school_id = $1 AND created_by = $2 AND status = 'Draft' ORDER BY created_at DESC LIMIT 1",
+        [user.schoolId, user.id]
+      )).rows[0];
+      await client.query(
+        `INSERT INTO rfq_cart_items (cart_id, vendor_id, notes, quantity)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (cart_id, vendor_id) DO UPDATE SET notes = EXCLUDED.notes, quantity = EXCLUDED.quantity`,
+        [cartRow.id, body.vendorId, body.notes || "", clampNumber(body.quantity || 1, 1, 10000)]
+      );
+      return cartRow;
+    });
+    await audit("rfq.cart.add", req, user, { cartId: cart.id, vendorId: body.vendorId });
+    sendJson(res, 201, { cartId: cart.id, vendorId: body.vendorId });
+    return;
+  }
+
+  if (req.method === "POST" && resource === "vendors" && action === "reviews") {
+    if (!usePostgres) {
+      sendJson(res, 503, { error: "Vendor reviews require PostgreSQL mode." });
+      return;
+    }
+    if (user.role !== "School Admin" && user.role !== "Super Admin") return deny(res);
+    const body = await readJsonBody(req, ["rating", "comment"]);
+    const review = await queryDb(
+      `INSERT INTO vendor_reviews (vendor_id, school_id, author_user_id, rating, comment)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (vendor_id, school_id, author_user_id)
+       DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment, created_at = now()
+       RETURNING *`,
+      [id, user.schoolId, user.id, clampNumber(body.rating, 1, 5), sanitizeText(body.comment)]
+    );
+    await audit("vendors.review", req, user, { vendorId: id, rating: body.rating });
+    sendJson(res, 201, review.rows[0]);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "comments" && !id) {
+    if (!usePostgres) {
+      sendJson(res, 503, { error: "Threaded comments require PostgreSQL mode." });
+      return;
+    }
+    const body = await readJsonBody(req, ["targetType", "targetId", "body"]);
+    const comment = await queryDb(
+      `INSERT INTO comments (target_type, target_id, parent_comment_id, author_user_id, body)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING *`,
+      [body.targetType, body.targetId, body.parentCommentId || null, user.id, sanitizeText(body.body)]
+    );
+    await audit("comments.create", req, user, { targetType: body.targetType, targetId: body.targetId, parentCommentId: body.parentCommentId || null });
+    sendJson(res, 201, comment.rows[0]);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "comments" && id === "flag") {
+    if (!usePostgres) {
+      sendJson(res, 503, { error: "Comment moderation requires PostgreSQL mode." });
+      return;
+    }
+    const body = await readJsonBody(req, ["commentId"]);
+    const comment = await queryDb(
+      "UPDATE comments SET flagged_count = flagged_count + 1, updated_at = now() WHERE id = $1 RETURNING *",
+      [body.commentId]
+    );
+    await audit("comments.flag", req, user, { commentId: body.commentId });
+    sendJson(res, 200, comment.rows[0] || { flagged: false });
     return;
   }
 
@@ -882,6 +1741,19 @@ async function handleApi(req, res, url) {
     };
     const fileName = templateMap[body.uploadType] || templateMap.staff_roster;
     const source = join(root, "assets", "templates", fileName);
+    if (s3Bucket) {
+      const file = await readFile(source);
+      const uploaded = await uploadAssetToS3({
+        key: `templates/${fileName}`,
+        body: file,
+        contentType: mimeTypes[".xlsx"],
+        fileName,
+        purpose: "template",
+        user
+      });
+      sendJson(res, 200, { fileName, path: uploaded.url, storage: "s3", ...uploaded });
+      return;
+    }
     const destinationRoot = process.env.USERPROFILE ? join(process.env.USERPROFILE, "Downloads") : "C:\\Users\\vishn\\Downloads";
     await mkdir(destinationRoot, { recursive: true });
     const destination = join(destinationRoot, fileName);
@@ -914,6 +1786,8 @@ async function handleApi(req, res, url) {
       receipt,
       notes: {
         school: body.schoolName || "Member school",
+        school_id: body.schoolId || "",
+        vendor_id: body.vendorId || "",
         payment_type: body.type || "Membership"
       }
     });
@@ -941,23 +1815,42 @@ async function handleApi(req, res, url) {
       amount: amount * 100,
       currency: "INR",
       accept_partial: false,
-      description: body.description || "Yaara Consortium membership test payment",
+      description: body.description || `Yarra Consortium membership fee for ${body.schoolName || "member school"}`,
       customer: {
         name: body.schoolName || "Yaara member school",
         email: body.email || "admin@gmail.com"
       },
       notify: {
         sms: false,
-        email: false
+        email: true
       },
       reminder_enable: false,
       notes: {
         school: body.schoolName || "Member school",
+        school_name: body.schoolName || "Member school",
+        school_id: body.schoolId || "",
+        vendor_id: body.vendorId || "",
         payment_type: body.type || "Membership"
       }
     });
 
-    sendJson(res, 200, link);
+    let emailNotification;
+    try {
+      emailNotification = await notifyRazorpayPaymentLink(link.id, "email");
+    } catch (error) {
+      await audit("payments.link_email_failed", req, user, {
+        school: body.schoolName || "member school",
+        email: body.email || "",
+        error: error.message
+      });
+      sendJson(res, 502, {
+        error: `Razorpay created the payment link, but email delivery failed: ${error.message}`
+      });
+      return;
+    }
+
+    await addNotification(`Payment link emailed to ${body.email || "school billing contact"} for ${body.schoolName || "member school"}.`, "Super Admin");
+    sendJson(res, 200, { ...link, emailNotification });
     return;
   }
 
@@ -990,6 +1883,16 @@ async function handleApi(req, res, url) {
     if (!file?.content?.length) {
       sendJson(res, 400, { error: "Please choose an Excel file." });
       return;
+    }
+    if (s3Bucket) {
+      await uploadAssetToS3({
+        key: `uploads/rosters/${Date.now()}-${slug(file.filename) || "roster"}.xlsx`,
+        body: file.content,
+        contentType: mimeTypes[".xlsx"],
+        fileName: file.filename || "roster.xlsx",
+        purpose: "roster-upload",
+        user
+      });
     }
     const rows = parseXlsx(file.content);
     const validation = validateRoster(uploadType, rows);
@@ -1061,13 +1964,15 @@ async function handleApi(req, res, url) {
       createdAt: committedAt
     });
     await writeJson(dbPath, db);
+    await audit("uploads.commit", req, user, { uploadType, recordCount: records.length, fileName: body.fileName });
     sendJson(res, 200, { status: "COMPLETED", recordCount: records.length, createdAt: committedAt });
     return;
   }
 
-  if (req.method === "POST" && resource === "schools") {
+  if (req.method === "POST" && resource === "schools" && !id) {
     if (!canWrite(user, "schools")) return deny(res);
     const body = await readBody(req);
+    const paymentPending = Boolean(body.paymentPending);
     const school = {
       id: createId("school", body.name),
       name: body.name,
@@ -1076,8 +1981,8 @@ async function handleApi(req, res, url) {
       type: body.type || "K-12",
       contact: body.contact || "",
       earlyYears: Boolean(body.earlyYears),
-      status: "Active",
-      membershipExpiry: "2027-05-18",
+      status: paymentPending ? "Payment pending" : "Active",
+      membershipExpiry: paymentPending ? "" : "2027-05-18",
       achievements: []
     };
     db.schools.unshift(school);
@@ -1086,15 +1991,49 @@ async function handleApi(req, res, url) {
       schoolId: school.id,
       type: "Membership",
       amount: Number(body.amount || 25000),
-      status: "Paid",
+      status: paymentPending ? "Payment link sent" : "Paid",
       invoice: `YAARA-INV-${1000 + db.payments.length + 1}`,
       method: body.paymentMethod || "Razorpay",
       gatewayPaymentId: body.gatewayPaymentId || "",
       gatewayOrderId: body.gatewayOrderId || "",
       createdAt: new Date().toISOString().slice(0, 10)
     });
+    if (s3Bucket && !paymentPending) {
+      await uploadAssetToS3({
+        key: `invoices/${school.id}-${Date.now()}.txt`,
+        body: Buffer.from(`Invoice for ${school.name}\nAmount: ${body.amount || 25000}\nStatus: Paid\n`, "utf8"),
+        contentType: "text/plain; charset=utf-8",
+        fileName: `${school.id}-invoice.txt`,
+        purpose: "invoice-log",
+        user
+      });
+    }
     await writeJson(dbPath, db);
+    await audit("schools.create", req, user, { schoolId: school.id, school: school.name, paymentPending });
     sendJson(res, 201, school);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "schools" && action === "activate-membership") {
+    if (!canWrite(user, "schools")) return deny(res);
+    const school = db.schools.find((item) => item.id === id);
+    if (!school) {
+      sendJson(res, 404, { error: "School not found" });
+      return;
+    }
+    school.status = "Active";
+    school.membershipExpiry = "2027-05-18";
+    const payment = db.payments.find((item) => item.schoolId === school.id && item.type === "Membership");
+    if (payment) {
+      payment.status = "Paid";
+      payment.method = payment.method || "Razorpay";
+      payment.createdAt = new Date().toISOString().slice(0, 10);
+    }
+    await addNotification(`Payment received for ${school.name}. Membership activated.`, "Super Admin");
+    await addNotification(`Payment received for ${school.name}. Membership activated.`, "School Admin");
+    await writeJson(dbPath, db);
+    await audit("schools.activate_membership", req, user, { schoolId: school.id, school: school.name });
+    sendJson(res, 200, school);
     return;
   }
 
@@ -1116,6 +2055,7 @@ async function handleApi(req, res, url) {
     };
     db.events.unshift(event);
     await writeJson(dbPath, db);
+    await audit("events.create", req, user, { eventId: event.id, title: event.title });
     sendJson(res, 201, event);
     return;
   }
@@ -1136,6 +2076,7 @@ async function handleApi(req, res, url) {
     db.students ||= [];
     db.students.unshift(student);
     await writeJson(dbPath, db);
+    await audit("students.invite", req, user, { studentId: student.id, schoolId: student.schoolId });
     sendJson(res, 201, student);
     return;
   }
@@ -1154,7 +2095,18 @@ async function handleApi(req, res, url) {
       createdAt: new Date().toISOString().slice(0, 10)
     };
     db.payments.unshift(payment);
+    if (s3Bucket) {
+      await uploadAssetToS3({
+        key: `invoices/${payment.id}.txt`,
+        body: Buffer.from(`Invoice: ${payment.invoice}\nType: ${payment.type}\nAmount: ${payment.amount}\nStatus: ${payment.status}\n`, "utf8"),
+        contentType: "text/plain; charset=utf-8",
+        fileName: `${payment.invoice}.txt`,
+        purpose: "invoice-log",
+        user
+      });
+    }
     await writeJson(dbPath, db);
+    await audit("payments.record", req, user, { paymentId: payment.id, schoolId: payment.schoolId, amount: payment.amount });
     sendJson(res, 201, payment);
     return;
   }
@@ -1173,6 +2125,7 @@ async function handleApi(req, res, url) {
     };
     db.exchanges.unshift(exchange);
     await writeJson(dbPath, db);
+    await audit("exchanges.create", req, user, { exchangeId: exchange.id, type: exchange.type });
     sendJson(res, 201, exchange);
     return;
   }
@@ -1186,6 +2139,7 @@ async function handleApi(req, res, url) {
     }
     vendor.status = "Approved";
     await writeJson(dbPath, db);
+    await audit("vendors.approve", req, user, { vendorId: vendor.id });
     sendJson(res, 200, vendor);
     return;
   }
@@ -1204,6 +2158,7 @@ async function handleApi(req, res, url) {
     };
     db.vendors.unshift(vendor);
     await writeJson(dbPath, db);
+    await audit("vendors.apply", req, user, { vendorId: vendor.id, category: vendor.category });
     sendJson(res, 201, vendor);
     return;
   }
@@ -1213,6 +2168,7 @@ async function handleApi(req, res, url) {
       notification.unread = false;
     });
     await writeJson(dbPath, db);
+    await audit("notifications.read", req, user);
     sendJson(res, 200, db.notifications);
     return;
   }
@@ -1252,16 +2208,36 @@ await ensureDb();
 
 createServer(async (req, res) => {
   try {
+    setSecurityHeaders(res);
+    cleanupRuntimeStores();
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith("/api/")) {
+      const isAuthRequest = url.pathname.startsWith("/api/auth/");
+      if (!enforceRateLimit(
+        req,
+        res,
+        isAuthRequest ? "auth" : "api",
+        isAuthRequest ? authRateLimitMax : apiRateLimitMax,
+        isAuthRequest ? authRateLimitWindowMs : apiRateLimitWindowMs
+      )) {
+        return;
+      }
       await handleApi(req, res, url);
       return;
     }
     await serveStatic(req, res, url);
   } catch (error) {
     console.error(error);
-    sendJson(res, 500, { error: "Server error" });
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "Server error" });
   }
-}).listen(port, "127.0.0.1", () => {
-  console.log(`Yaara Consortium app running at http://localhost:${port}`);
+}).listen(port, host, () => {
+  const shownHost = host === "0.0.0.0" ? "localhost" : host;
+  console.log(`Yaara Consortium app running at http://${shownHost}:${port}`);
 });

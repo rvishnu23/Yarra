@@ -410,6 +410,10 @@ main {
   padding: 20px;
 }
 
+.onboarding-panel {
+  max-width: 760px;
+}
+
 .large-panel {
   min-height: 410px;
 }
@@ -1170,6 +1174,175 @@ th {
   font-weight: 850;
 }
 
+.tutorial-open-button {
+  min-height: 44px;
+}
+
+.tutorial-backdrop {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(480px, 100%);
+  z-index: 80;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: 18px;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.tutorial-card {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.tutorial-card * {
+  pointer-events: auto;
+}
+
+.tutorial-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--nav);
+  font-weight: 950;
+}
+
+.tutorial-start-badge {
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--aqua);
+  color: var(--nav);
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.tutorial-start-badge:hover {
+  background: var(--aqua-strong);
+}
+
+.tutorial-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7f4f5;
+}
+
+.tutorial-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--nav);
+  transition: width 180ms ease;
+}
+
+.tutorial-quest {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fdfd;
+}
+
+.tutorial-quest span {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.tutorial-action-list {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(42, 123, 140, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.tutorial-action-list strong {
+  color: var(--nav);
+}
+
+.tutorial-action-list ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ink);
+}
+
+.tutorial-action-list li {
+  line-height: 1.45;
+}
+
+.tutorial-pointer {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--aqua-strong);
+  background: #eefafb;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.tutorial-rewards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 70px;
+  overflow: auto;
+}
+
+.tutorial-rewards span {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  background: #ffffff;
+}
+
+.tutorial-rewards .is-earned {
+  border-color: rgba(38, 140, 118, 0.35);
+  color: var(--green);
+  background: rgba(38, 140, 118, 0.09);
+}
+
+.tutorial-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.tutorial-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tutorial-focus {
+  position: relative;
+  z-index: 40;
+  outline: 3px solid rgba(42, 123, 140, 0.55);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 5px rgba(204, 246, 248, 0.85), 0 14px 42px rgba(18, 52, 59, 0.18);
+}
+
+.tutorial-is-running main,
+.tutorial-is-running .app-shell > header {
+  scroll-margin-top: 18px;
+}
+
 .upi-details {
   display: grid;
   gap: 12px;
@@ -1278,6 +1451,28 @@ th {
   .session-warning {
     position: static;
     display: grid;
+  }
+
+  .tutorial-backdrop {
+    inset: 0;
+    width: auto;
+    align-items: end;
+    justify-items: center;
+    padding: 14px;
+  }
+
+  .tutorial-card {
+    width: min(100%, 560px);
+    max-height: calc(100vh - 28px);
+  }
+
+  .tutorial-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tutorial-actions .tutorial-skip {
+    grid-column: 1 / -1;
   }
 
   .module-nav {

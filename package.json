@@ -6,6 +6,12 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "migrate": "node scripts/migrate.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.699.0",
+    "google-auth-library": "^9.15.0",
+    "pg": "^8.13.1"
   }
 }

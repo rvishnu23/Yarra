@@ -124,6 +124,7 @@
             <button class="icon-button" id="notificationButton" type="button" aria-label="Notifications">
               <span aria-hidden="true">3</span>
             </button>
+            <button class="ghost-button tutorial-open-button" id="tutorialButton" type="button">Tutorial</button>
             <button class="ghost-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
@@ -253,69 +254,52 @@
           </section>
 
           <section class="view" id="onboarding" aria-label="School onboarding">
-            <div class="split-grid">
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <p class="eyebrow">Under 10 minutes</p>
-                    <h2>School registration</h2>
-                  </div>
+            <section class="panel onboarding-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Under 10 minutes</p>
+                  <h2>School registration</h2>
                 </div>
-                <form class="platform-form" id="schoolForm">
-                  <label>
-                    School name
-                    <input name="school" type="text" value="Greenfield Public School">
-                  </label>
-                  <label>
-                    Board affiliation
-                    <select name="board">
-                      <option>CBSE</option>
-                      <option>ICSE</option>
-                      <option>IB</option>
-                      <option>IGCSE</option>
-                    </select>
-                  </label>
-                  <label>
-                    School type
-                    <select name="type">
-                      <option>K-12</option>
-                      <option>Early Years</option>
-                      <option>Senior Secondary</option>
-                    </select>
-                  </label>
-                  <label class="checkbox-row">
-                    <input type="checkbox" checked>
-                    Early Years curriculum access
-                  </label>
-                  <label>
-                    Test payment amount
-                    <input name="amount" type="number" min="1" value="1">
-                  </label>
-                  <button class="primary-button" type="submit">Save and continue to payment</button>
-                  <button class="ghost-button hidden" id="paymentRescueButton" type="button">Cancel stuck payment screen</button>
-                  <p class="form-status" aria-live="polite"></p>
-                </form>
-              </section>
-
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <p class="eyebrow">Razorpay</p>
-                    <h2>Membership activation</h2>
-                  </div>
-                </div>
-                <ol class="step-list">
-                  <li class="done">School details captured</li>
-                  <li class="done">Membership tier selected</li>
-                  <li class="current">Razorpay/UPI test order for ₹1</li>
-                  <li>Invoice PDF generated</li>
-                  <li>School dashboard unlocked</li>
-                </ol>
-                <div class="payment-config" id="paymentConfig">
-                  Checking payment configuration...
-                </div>
-              </section>
-            </div>
+              </div>
+              <form class="platform-form" id="schoolForm">
+                <label>
+                  School name
+                  <input name="school" type="text" value="Greenfield Public School">
+                </label>
+                <label>
+                  School billing email
+                  <input name="billingEmail" type="email" value="admin@school.edu">
+                </label>
+                <label>
+                  Board affiliation
+                  <select name="board">
+                    <option>CBSE</option>
+                    <option>ICSE</option>
+                    <option>IB</option>
+                    <option>IGCSE</option>
+                  </select>
+                </label>
+                <label>
+                  School type
+                  <select name="type">
+                    <option>K-12</option>
+                    <option>Early Years</option>
+                    <option>Senior Secondary</option>
+                  </select>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" checked>
+                  Early Years curriculum access
+                </label>
+                <label>
+                  School membership fee
+                  <input name="amount" type="number" min="1" value="1">
+                </label>
+                <button class="primary-button" type="submit">Create school and collect membership payment</button>
+                <button class="ghost-button hidden" id="paymentRescueButton" type="button">Cancel stuck payment screen</button>
+                <p class="form-status" aria-live="polite"></p>
+              </form>
+            </section>
           </section>
 
           <section class="view" id="payments" aria-label="Payments and invoices">

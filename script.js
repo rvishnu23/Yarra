@@ -3,20 +3,42 @@ const USER_STORAGE_KEY = "yaara-user";
 const AUTH_STORAGE_KEY = "yaara-authenticated";
 const SESSION_TIMEOUT_STORAGE_KEY = "yaara-session-timeout-minutes";
 const defaultTimeoutMinutes = 30;
+let activeSession = null;
 
 const getStoredJson = (key, fallback = {}) => {
   try {
-    return JSON.parse(sessionStorage.getItem(key) || JSON.stringify(fallback));
+    return JSON.parse(window.sessionStorage?.getItem(key) || JSON.stringify(fallback));
   } catch {
     return fallback;
   }
 };
 
-const currentSession = () => getStoredJson(SESSION_STORAGE_KEY, null);
+const setSessionValue = (key, value) => {
+  try {
+    window.sessionStorage?.setItem(key, value);
+  } catch {
+    // Storage may be unavailable in embedded preview modes.
+  }
+};
+
+const getSessionValue = (key) => {
+  try {
+    return window.sessionStorage?.getItem(key) || null;
+  } catch {
+    return null;
+  }
+};
+
+const currentSession = () => activeSession || getStoredJson(SESSION_STORAGE_KEY, null);
 
 const storeSession = (session) => {
   if (!session?.id) return;
-  sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  activeSession = session;
+  try {
+    window.sessionStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // In-memory session still keeps the current tab authenticated.
+  }
   updateSessionUi();
 };
 
@@ -36,7 +58,7 @@ const handleResponse = async (response, fallbackError) => {
   const body = await response.json().catch(() => ({}));
   updateSessionFromHeaders(response);
   if (response.status === 401) {
-    expireSession(body.error || "Your secure session has expired. Please sign in again.");
+    expireSession(body.error || "Your secure session has expired. Please sign in again.", { silent: suppressSessionExpiryToast });
     throw new Error(body.error || fallbackError);
   }
   if (!response.ok) {
@@ -51,6 +73,16 @@ const handleResponse = async (response, fallbackError) => {
 const api = {
   async state() {
     const response = await fetch(`/api/state?role=${encodeURIComponent(currentRole())}`);
+    return handleResponse(response, "Unable to load platform state");
+  },
+  async stateWithSession(session) {
+    const response = await fetch(`/api/state?role=${encodeURIComponent(session?.role || currentRole())}`, {
+      headers: {
+        "X-User-Role": session?.role || currentRole(),
+        "X-Session-Id": session?.id || "",
+        "X-Session-Timeout-Minutes": String(session?.timeoutMinutes || selectedSessionTimeoutMinutes())
+      }
+    });
     return handleResponse(response, "Unable to load platform state");
   },
   async create(resource, payload) {
@@ -158,6 +190,101 @@ const rolePermissions = {
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
+const tutorialModuleDetails = {
+  dashboard: {
+    title: "Command centre",
+    goal: "Read platform metrics, spot empty areas, and choose your next module.",
+    challenge: "Check the five metric tiles and confirm the current role workspace.",
+    target: ".metrics-grid",
+    actions: ["Read Active schools, Vendors, Events, Students, and Revenue.", "Use the sidebar to move into any module.", "When data is empty, treat zero values as setup tasks."]
+  },
+  userManagement: {
+    title: "Excel Upload Engine",
+    goal: "Download roster templates, validate Excel files, preview errors, and commit student or teacher users.",
+    challenge: "Pick Student or Teacher Database, then inspect the validate and upload history panels.",
+    target: "#userManagement .upload-engine-grid",
+    actions: ["Choose Teacher Database or Student Database.", "Click Download Template before preparing Excel.", "Use Validate Upload first; Commit users appears only when validation passes.", "Check Upload history after every commit."]
+  },
+  schoolDashboard: {
+    title: "School dashboard",
+    goal: "Review membership, school summary, invoices, events, and student invitations.",
+    challenge: "Find where membership status and recent invoices will appear after onboarding.",
+    target: "#schoolDashboard .school-dashboard-grid",
+    actions: ["Review school summary and student count.", "Check membership status and renewal area.", "Use Invite student when manually onboarding a learner.", "Recent invoices appear in the finance panel."]
+  },
+  onboarding: {
+    title: "School onboarding",
+    goal: "Register a school and start membership activation through Razorpay or UPI.",
+    challenge: "Look through school details, board affiliation, school type, and payment amount.",
+    target: "#schoolForm",
+    actions: ["Enter the real school name and billing email.", "Select board affiliation and school type.", "Tick Early Years only for eligible schools.", "Set the membership fee, then collect the school's payment."]
+  },
+  payments: {
+    title: "Payments and invoices",
+    goal: "Record payments, review transaction history, and preview invoices.",
+    challenge: "Open the payment form and identify invoice, amount, status, and method fields.",
+    target: "#payments .section-bar",
+    actions: ["Click Record payment to add an offline or manual payment.", "Review invoice number, school, amount, and status.", "Click View invoice to preview before download."]
+  },
+  students: {
+    title: "Student users",
+    goal: "Invite students and manage age-gated access.",
+    challenge: "Find the Add student action and the guardian email/access details on student cards.",
+    target: "#students .section-bar",
+    actions: ["Click Add student for a single manual invite.", "Use User management for bulk Excel onboarding.", "Check age because student content is filtered by age.", "Guardian email is required for real student access."]
+  },
+  events: {
+    title: "Events",
+    goal: "Create events, track seats, and manage paid or member-only programs.",
+    challenge: "Review event type, date, format, capacity, and recording/material states.",
+    target: "#events .section-bar",
+    actions: ["Click Create event.", "Choose type, format, date, host, and capacity.", "Use Paid entry only when payment tracking is needed."]
+  },
+  exchange: {
+    title: "Exchange programs",
+    goal: "Post and track teacher or student exchange opportunities.",
+    challenge: "Scan the Open, Under Review, Matched, and Completed columns.",
+    target: "#exchange .kanban",
+    actions: ["Click Post exchange slot.", "Choose Teacher or Student exchange.", "Track opportunities across Open, Under Review, Matched, and Completed."]
+  },
+  library: {
+    title: "Content library",
+    goal: "Search and filter workshops, podcasts, webinars, and articles.",
+    challenge: "Try the search box and filter chips, then notice Early Years tags.",
+    target: "#library .section-bar",
+    actions: ["Search by title, speaker, or tag.", "Use filter chips for workshops, podcasts, articles, and webinars.", "Early Years tagged content should only appear for entitled schools."]
+  },
+  vendorSignup: {
+    title: "Vendor sign-up",
+    goal: "Explain Yarra vendor procedures, benefits, contacts, and application steps.",
+    challenge: "Review the procedure list and sample vendor workspace previews.",
+    target: "#vendorSignup .vendor-hero",
+    actions: ["Read the vendor hosting procedure.", "Check Akshar Arbol admin contact details.", "Use Apply as vendor to jump to the application form.", "Review sample platform images before applying."]
+  },
+  vendors: {
+    title: "Vendor marketplace",
+    goal: "Browse vendor categories, approvals, featured placements, and procurement opportunities.",
+    challenge: "Use the category filter and find where approvals or promotions appear.",
+    target: "#vendors .section-bar",
+    actions: ["Use Category to filter vendors.", "Super Admin can approve pending vendors.", "Featured placements and promotions appear in marketplace campaigns."]
+  },
+  profiles: {
+    title: "School profiles",
+    goal: "Review public member-school profile highlights and achievements.",
+    challenge: "Find where school highlights will appear after you add real school data.",
+    target: "#profiles .profile-layout",
+    actions: ["Review the school profile summary.", "Check highlights and achievements.", "Use this as the member-facing school identity area."]
+  }
+};
+
+const tutorialRoleIntro = {
+  "Super Admin": "You are learning every control: schools, users, payments, vendors, content, events, and moderation-ready workflows.",
+  "School Admin": "You are learning the school operating path: onboarding, dashboards, rosters, payments, students, events, and content.",
+  Teacher: "You are learning the educator path: events, exchanges, content, and school profiles.",
+  Student: "You are learning the student path: safe events, exchange options, content, and profiles.",
+  Vendor: "You are learning the vendor path: application, marketplace presence, enquiries, and approved promotions."
+};
+
 const currentRole = () => roleSelect?.value || getStoredJson(USER_STORAGE_KEY, {}).role || "School Admin";
 
 const authHeaders = (json = true) => ({
@@ -179,6 +306,7 @@ const sessionTimeoutSelect = document.querySelector("#sessionTimeoutSelect");
 const sessionStatus = document.querySelector("#sessionStatus");
 const sessionWarning = document.querySelector("#sessionWarning");
 const extendSessionButton = document.querySelector("#extendSessionButton");
+const tutorialButton = document.querySelector("#tutorialButton");
 const vendorCategory = document.querySelector("#vendorCategory");
 const librarySearch = document.querySelector("#librarySearch");
 const metricsGrid = document.querySelector(".metrics-grid");
@@ -203,6 +331,7 @@ let pendingUpload = null;
 let sessionClock = null;
 let lastSessionActivityAt = 0;
 let sessionExtendInFlight = false;
+let suppressSessionExpiryToast = false;
 
 const imageMap = {
   event: "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=900&q=80",
@@ -229,14 +358,18 @@ const showToast = (message) => {
 };
 
 function selectedSessionTimeoutMinutes() {
-  const stored = Number(localStorage.getItem(SESSION_TIMEOUT_STORAGE_KEY));
+  const stored = Number(window.localStorage?.getItem(SESSION_TIMEOUT_STORAGE_KEY));
   const fromControl = Number(sessionTimeoutSelect?.value || loginSessionTimeout?.value);
   const value = Number.isFinite(stored) && stored > 0 ? stored : fromControl || defaultTimeoutMinutes;
   return Math.min(240, Math.max(1, Math.round(value)));
 }
 
 function syncSessionTimeoutControls(value = selectedSessionTimeoutMinutes()) {
-  localStorage.setItem(SESSION_TIMEOUT_STORAGE_KEY, String(value));
+  try {
+    window.localStorage?.setItem(SESSION_TIMEOUT_STORAGE_KEY, String(value));
+  } catch {
+    // Timeout selector still works for the current page lifecycle.
+  }
   [loginSessionTimeout, sessionTimeoutSelect].forEach((control) => {
     if (!control) return;
     if (![...control.options].some((option) => option.value === String(value))) {
@@ -290,21 +423,28 @@ function updateSessionUi() {
 }
 
 function clearStoredSession() {
+  activeSession = null;
   clearSessionClock();
-  sessionStorage.removeItem(AUTH_STORAGE_KEY);
-  sessionStorage.removeItem(USER_STORAGE_KEY);
-  sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  try {
+    window.sessionStorage?.removeItem(AUTH_STORAGE_KEY);
+    window.sessionStorage?.removeItem(USER_STORAGE_KEY);
+    window.sessionStorage?.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable in embedded preview modes.
+  }
+  toast?.classList.remove("is-visible");
+  toast && (toast.textContent = "");
   sessionStatus && (sessionStatus.textContent = "Session --");
   sessionStatus?.classList.remove("is-warning");
   sessionWarning?.classList.add("hidden");
 }
 
-function expireSession(message) {
+function expireSession(message, { silent = false } = {}) {
   clearStoredSession();
   document.body.classList.remove("is-authenticated");
   clearPaymentOverlay();
   document.querySelectorAll(".modal-backdrop").forEach((modalBackdrop) => modalBackdrop.remove());
-  showToast(message);
+  if (!silent) showToast(message);
 }
 
 async function extendSecureSession({ notify = false } = {}) {
@@ -345,6 +485,145 @@ const setView = (viewId) => {
   views.forEach((view) => {
     view.classList.toggle("is-active", view.id === viewId);
   });
+};
+
+const tutorialStepsForRole = (role = currentRole()) => {
+  const allowed = rolePermissions[role] || rolePermissions["School Admin"];
+  return [
+    {
+      type: "intro",
+      view: allowed[0],
+      title: `${role} training quest`,
+      goal: tutorialRoleIntro[role] || tutorialRoleIntro["School Admin"],
+      challenge: "Use Next to tour each module. You can skip the tutorial anytime."
+    },
+    ...allowed.map((view) => ({ type: "module", view, ...tutorialModuleDetails[view] })),
+    {
+      type: "finish",
+      view: allowed[0],
+      title: "Training complete",
+      goal: "You have toured the modules available to this role.",
+      challenge: "Start adding real Yarra data manually, or rerun Tutorial from the top bar whenever needed."
+    }
+  ];
+};
+
+let activeTutorial = null;
+
+const tutorialBadgeLabel = (index, total) => {
+  if (index === 0) return "Start";
+  if (index === total - 1) return "Complete";
+  return `Level ${index}`;
+};
+
+const closeTutorial = ({ skipped = false } = {}) => {
+  document.querySelector(".tutorial-backdrop")?.remove();
+  document.querySelectorAll(".tutorial-focus").forEach((item) => item.classList.remove("tutorial-focus"));
+  document.body.classList.remove("tutorial-is-running");
+  activeTutorial = null;
+  if (skipped) showToast("Tutorial skipped. You can reopen it from the top bar.");
+};
+
+const renderTutorialStep = () => {
+  if (!activeTutorial) return;
+  const { steps, index } = activeTutorial;
+  const step = steps[index];
+  const total = steps.length;
+  const progress = Math.round(((index + 1) / total) * 100);
+  const moduleButton = step.view ? document.querySelector(`.nav-item[data-view="${step.view}"]`) : null;
+  const actionItems = step.actions || [];
+
+  if (step.view && rolePermissions[currentRole()]?.includes(step.view)) {
+    setView(step.view);
+  }
+
+  document.body.classList.add("tutorial-is-running");
+  document.querySelectorAll(".tutorial-focus").forEach((item) => item.classList.remove("tutorial-focus"));
+  const targetElement = step.target ? document.querySelector(step.target) : document.querySelector(`#${step.view}`);
+  moduleButton?.classList.add("tutorial-focus");
+  targetElement?.classList.add("tutorial-focus");
+  targetElement?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+
+  const backdrop = document.querySelector(".tutorial-backdrop") || document.createElement("div");
+  backdrop.className = "tutorial-backdrop";
+  backdrop.innerHTML = `
+    <section class="tutorial-card" role="dialog" aria-label="Role tutorial">
+      <div class="tutorial-topline">
+        <button class="tutorial-start-badge" type="button" data-tutorial-action="next">${tutorialBadgeLabel(index, total)}</button>
+        <strong>${progress}%</strong>
+      </div>
+      <div class="tutorial-progress" aria-hidden="true"><span style="width: ${progress}%"></span></div>
+      <p class="eyebrow">${currentRole()} tutorial</p>
+      <h2>${step.title}</h2>
+      <p>${step.goal}</p>
+      <div class="tutorial-quest">
+        <strong>Quest</strong>
+        <span>${step.challenge}</span>
+      </div>
+      ${
+        actionItems.length
+          ? `<div class="tutorial-action-list">
+              <strong>What to do here</strong>
+              <ol>
+                ${actionItems.map((item) => `<li>${item}</li>`).join("")}
+              </ol>
+            </div>`
+          : ""
+      }
+      <p class="tutorial-pointer">The highlighted area on the page is the part to explore before pressing Next.</p>
+      <div class="tutorial-rewards">
+        ${steps
+          .map((item, itemIndex) => `<span class="${itemIndex <= index ? "is-earned" : ""}">${itemIndex === 0 ? "Intro" : itemIndex === total - 1 ? "Done" : item.title}</span>`)
+          .join("")}
+      </div>
+      <div class="tutorial-actions">
+        <button class="ghost-button tutorial-skip" type="button" data-tutorial-action="skip">Skip</button>
+        <button class="ghost-button tutorial-back" type="button" data-tutorial-action="back" ${index === 0 ? "disabled" : ""}>Back</button>
+        <button class="primary-button tutorial-next" type="button" data-tutorial-action="next">${index === 0 ? "Start tutorial" : index === total - 1 ? "Finish" : "Next"}</button>
+      </div>
+    </section>
+  `;
+
+  if (!backdrop.isConnected) document.body.append(backdrop);
+};
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-tutorial-action]");
+  if (!button || !activeTutorial) return;
+  event.preventDefault();
+  event.stopPropagation();
+
+  const action = button.dataset.tutorialAction;
+  if (action === "skip") {
+    closeTutorial({ skipped: true });
+    return;
+  }
+
+  if (action === "back") {
+    if (activeTutorial.index > 0) {
+      activeTutorial.index -= 1;
+      renderTutorialStep();
+    }
+    return;
+  }
+
+  if (activeTutorial.index >= activeTutorial.steps.length - 1) {
+    closeTutorial();
+    showToast("Tutorial complete. Nice, you're ready to explore.");
+    return;
+  }
+
+  activeTutorial.index += 1;
+  renderTutorialStep();
+});
+
+const startTutorial = () => {
+  activeTutorial = {
+    role: currentRole(),
+    steps: tutorialStepsForRole(currentRole()),
+    index: 0
+  };
+  renderTutorialStep();
 };
 
 const applyRolePermissions = () => {
@@ -424,7 +703,13 @@ const schoolName = (id) => state.schools.find((school) => school.id === id)?.nam
 
 const renderSchoolDashboard = () => {
   const school = state.schools[0];
-  if (!school) return;
+  if (!school) {
+    document.querySelector(".school-summary-panel").innerHTML = `<p class="eyebrow">No school yet</p><h2>Add your first school</h2><p class="panel-copy">Use School onboarding to create the first Yarra member school.</p>`;
+    document.querySelector(".school-membership-panel").innerHTML = `<p class="eyebrow">Membership</p><h2>Not started</h2><p class="panel-copy">Membership details appear after onboarding.</p>`;
+    document.querySelector(".school-events-panel").innerHTML = `<p class="eyebrow">Upcoming</p><h2>No events yet</h2>`;
+    document.querySelector(".school-invoices-panel").innerHTML = `<p class="eyebrow">Finance</p><h2>No invoices yet</h2>`;
+    return;
+  }
   const schoolStudents = (state.students || []).filter((student) => student.schoolId === school.id);
   const schoolPayments = state.payments.filter((payment) => payment.schoolId === school.id);
   const nextEvents = state.events.slice(0, 3);
@@ -445,8 +730,16 @@ const renderSchoolDashboard = () => {
   document.querySelector(".school-membership-panel").innerHTML = `
     <p class="eyebrow">Membership</p>
     <h2>${school.status}</h2>
-    <p class="panel-copy">Valid until ${school.membershipExpiry}. Renewal reminders are scheduled at 30, 14, 7, 2, and 1 day before expiry.</p>
-    <button class="primary-button" type="button" id="renewMembershipButton">Renew membership</button>
+    <p class="panel-copy">${
+      school.status === "Payment pending"
+        ? "Payment link has been sent. Activate membership after Razorpay confirms payment, or use local confirmation while testing."
+        : `Valid until ${school.membershipExpiry}. Renewal reminders are scheduled at 30, 14, 7, 2, and 1 day before expiry.`
+    }</p>
+    ${
+      school.status === "Payment pending"
+        ? `<button class="primary-button" type="button" id="activateMembershipButton">Mark payment received</button>`
+        : `<button class="primary-button" type="button" id="renewMembershipButton">Renew membership</button>`
+    }
   `;
 
   document.querySelector(".school-events-panel").innerHTML = `
@@ -494,25 +787,33 @@ const renderSchoolDashboard = () => {
     showToast("Membership renewal payment recorded and invoice generated.");
     await refresh();
   });
+
+  document.querySelector("#activateMembershipButton")?.addEventListener("click", async () => {
+    await api.post(`/api/schools/${school.id}/activate-membership`);
+    showToast("Membership activated and school dashboard unlocked.");
+    await refresh();
+  });
 };
 
 const renderEvents = () => {
-  document.querySelector("#eventsGrid").innerHTML = state.events
-    .map((event) =>
-      cardTemplate({
-        eyebrow: event.type,
-        title: event.title,
-        body: `${event.format} - ${event.date} - ${event.registered}/${event.capacity} seats booked. Hosted by ${event.host}.`,
-        tags: [
-          event.paid ? "Paid entry" : "Member access",
-          event.recording ? "Recording" : "Live",
-          event.materials ? "Materials" : "Materials pending"
-        ],
-        image: event.type === "Workshop" ? imageMap.workshop : imageMap.event,
-        className: "project-card"
-      })
-    )
-    .join("");
+  document.querySelector("#eventsGrid").innerHTML = state.events.length
+    ? state.events
+        .map((event) =>
+          cardTemplate({
+            eyebrow: event.type,
+            title: event.title,
+            body: `${event.format} - ${event.date} - ${event.registered}/${event.capacity} seats booked. Hosted by ${event.host}.`,
+            tags: [
+              event.paid ? "Paid entry" : "Member access",
+              event.recording ? "Recording" : "Live",
+              event.materials ? "Materials" : "Materials pending"
+            ],
+            image: event.type === "Workshop" ? imageMap.workshop : imageMap.event,
+            className: "project-card"
+          })
+        )
+        .join("")
+    : `<article class="panel"><h3>No events yet</h3><p>Create the first Yarra event when you are ready.</p></article>`;
 };
 
 const renderExchange = () => {
@@ -678,9 +979,10 @@ const renderPaymentConfig = () => {
 
 const renderStudents = () => {
   const students = state.students || [];
-  studentGrid.innerHTML = students
-    .map(
-      (student) => `
+  studentGrid.innerHTML = students.length
+    ? students
+        .map(
+          (student) => `
         <article class="student-card">
           <div>
             <p class="eyebrow">${student.grade} - age ${student.age}</p>
@@ -692,13 +994,18 @@ const renderStudents = () => {
           <p class="panel-copy">Guardian: ${student.guardianEmail}</p>
         </article>
       `
-    )
-    .join("");
+        )
+        .join("")
+    : `<article class="panel"><h3>No students yet</h3><p>Use User management or Add student to onboard learners manually.</p></article>`;
 };
 
 const renderProfiles = () => {
   const activeSchool = state.schools[0];
-  if (!activeSchool) return;
+  if (!activeSchool) {
+    document.querySelector(".school-profile div").innerHTML = `<p class="eyebrow">No profile yet</p><h3>Add your first school</h3><p>School profile details appear after onboarding.</p>`;
+    document.querySelector(".clean-list").innerHTML = `<li>No highlights added yet</li>`;
+    return;
+  }
   document.querySelector(".school-profile div").innerHTML = `
     <p class="eyebrow">${activeSchool.board} - ${activeSchool.city}</p>
     <h3>${activeSchool.name}</h3>
@@ -758,10 +1065,17 @@ const refresh = async () => {
   renderAll();
 };
 
+const refreshWithSession = async (session) => {
+  const [nextState, nextPaymentConfig] = await Promise.all([api.stateWithSession(session), api.paymentConfig()]);
+  state = nextState;
+  paymentConfigState = nextPaymentConfig;
+  renderAll();
+};
+
 const setAuthenticated = (value) => {
   document.body.classList.toggle("is-authenticated", value);
   if (value) {
-    sessionStorage.setItem(AUTH_STORAGE_KEY, "true");
+    setSessionValue(AUTH_STORAGE_KEY, "true");
     updateSessionUi();
   } else {
     clearStoredSession();
@@ -778,10 +1092,10 @@ const completeGmailLogin = async () => {
     timeoutMinutes
   });
   roleSelect.value = authUser.role;
-  sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+  setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
   storeSession(authUser.session);
   setAuthenticated(true);
-  await refresh();
+  await refreshWithSession(authUser.session);
   showToast(`Signed in with Gmail as ${authUser.email}.`);
 };
 
@@ -802,7 +1116,7 @@ const loadRazorpayScript = () =>
 const openUpiPayment = async (order, school) => {
   const intent = await api.createUpiIntent({
     amount: order.amount / 100,
-    note: `Yaara membership - ${school.name}`
+    note: `Yarra membership fee from ${school.name}`
   });
 
   return new Promise((resolve, reject) => {
@@ -811,18 +1125,18 @@ const openUpiPayment = async (order, school) => {
     overlay.innerHTML = `
       <div class="modal-card">
         <div class="modal-heading">
-          <h2>Pay ₹${intent.amount} by UPI</h2>
+          <h2>Collect ₹${intent.amount} membership fee</h2>
           <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
         </div>
         <div class="upi-details">
-          <p class="eyebrow">Payee UPI ID</p>
+          <p class="eyebrow">Yarra/Akshar receiving UPI ID</p>
           <strong>${intent.payeeId}</strong>
-          <p>Open this payment link on a device with a UPI app, complete the ₹${intent.amount} payment, then confirm below.</p>
-          <a class="primary-button upi-link" href="${intent.uri}">Open UPI app</a>
+          <p>Use this payment link for ${school.name}'s membership fee. In production, send it to the school's admin or finance contact.</p>
+          <a class="primary-button upi-link" href="${intent.uri}">Open school payment link</a>
           <button class="ghost-button copy-upi" type="button">Copy UPI link</button>
         </div>
-        <button class="primary-button confirm-upi" type="button">I have paid ₹${intent.amount}</button>
-        <p class="login-note">This local direct UPI flow records payment after your confirmation. Bank verification requires Razorpay webhooks or a payment provider settlement account.</p>
+        <button class="primary-button confirm-upi" type="button">Mark ${school.name} membership as paid</button>
+        <p class="login-note">Local testing lets you confirm manually. Production should activate the school only after a verified Razorpay webhook or bank settlement confirmation.</p>
       </div>
     `;
 
@@ -860,19 +1174,17 @@ const openRazorpayHostedLink = (link, order, school) =>
     overlay.innerHTML = `
       <div class="modal-card">
         <div class="modal-heading">
-          <h2>Pay ₹${order.amount / 100} on Razorpay</h2>
+          <h2>Payment email sent</h2>
           <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
         </div>
         <div class="upi-details">
-          <p class="eyebrow">Hosted Razorpay payment page</p>
-          <strong>UPI / QR payment</strong>
-          <p>Open Razorpay's hosted payment page. It avoids the stuck popup and should show the UPI QR scan option on the Razorpay page.</p>
-          <a class="primary-button upi-link" href="${link.short_url}">Open Razorpay payment page</a>
-          <code class="payment-url">${link.short_url}</code>
-          <button class="ghost-button copy-razorpay-link" type="button">Copy payment link</button>
+          <p class="eyebrow">Razorpay email delivery</p>
+          <strong>${school.name} - ₹${order.amount / 100}</strong>
+          <p>The secure Razorpay payment link has been sent to ${school.contact}. The payment URL is hidden here so the school completes payment from its own mailbox.</p>
+          <p class="login-note">If it does not arrive within a minute, check spam/promotions or confirm that this email address is the real school billing mailbox.</p>
         </div>
-        <button class="primary-button confirm-razorpay-link" type="button">I completed the ₹${order.amount / 100} Razorpay payment</button>
-        <p class="login-note">For automatic confirmation, the next production step is adding Razorpay webhooks. For this local test, confirm after payment.</p>
+        <button class="primary-button confirm-razorpay-link" type="button">Done</button>
+        <p class="login-note">When Razorpay confirms the payment through a verified webhook, Yarra will show a notification and activate the membership workflow.</p>
       </div>
     `;
 
@@ -880,25 +1192,13 @@ const openRazorpayHostedLink = (link, order, school) =>
       overlay.remove();
       reject(new Error("Payment cancelled"));
     });
-    overlay.querySelector(".upi-link").addEventListener("click", (event) => {
-      event.preventDefault();
-      window.location.href = link.short_url;
-    });
-    overlay.querySelector(".copy-razorpay-link").addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(link.short_url);
-        showToast("Razorpay payment link copied.");
-      } catch {
-        showToast(link.short_url);
-      }
-    });
     overlay.querySelector(".confirm-razorpay-link").addEventListener("click", () => {
       overlay.remove();
       resolve({
         razorpay_payment_id: link.id,
         razorpay_order_id: link.reference_id || link.id,
-        method: "Razorpay hosted link",
-        simulated: false,
+        method: "Razorpay emailed link",
+        pending: true,
         schoolName: school.name
       });
     });
@@ -935,7 +1235,7 @@ const openRazorpayCheckout = (order, school) =>
       amount: order.amount,
       currency: order.currency || "INR",
       name: "Yaara Education Group",
-      description: "Yaara Consortium membership",
+      description: `Yarra Consortium membership for ${school.name}`,
       image: "assets/yarra-logo.jpeg",
       order_id: order.id,
       method: {
@@ -1059,6 +1359,8 @@ navButtons.forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
 });
 
+tutorialButton?.addEventListener("click", startTutorial);
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
@@ -1085,7 +1387,7 @@ vendorSignupOpenButton.addEventListener("click", async () => {
       timeoutMinutes: selectedSessionTimeoutMinutes()
     });
     roleSelect.value = authUser.role;
-    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+    setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
     storeSession(authUser.session);
     setAuthenticated(true);
     await refresh();
@@ -1115,13 +1417,13 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     board: formData.get("board"),
     type: formData.get("type"),
     city: "Bengaluru",
-    contact: "admin@school.edu",
+    contact: formData.get("billingEmail") || "admin@school.edu",
     earlyYears: event.currentTarget.querySelector('input[type="checkbox"]').checked
   };
   const amount = Math.max(1, Number(formData.get("amount") || 1));
   try {
     paymentRescueButton.classList.remove("hidden");
-    formStatus.textContent = "Creating Razorpay payment order...";
+    formStatus.textContent = `Creating membership payment request for ${payload.name}...`;
     const order = await api.createRazorpayOrder({
       amount,
       type: "Membership",
@@ -1129,23 +1431,43 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     });
     formStatus.textContent = order.simulated
       ? order.reason || "Razorpay keys not configured. Running local payment simulation..."
-      : "Creating Razorpay hosted payment page...";
+      : "Creating Razorpay hosted school payment page...";
     const schoolForPayment = {
       name: payload.name,
       contact: payload.contact
     };
+    let pendingSchool = null;
     const payment = order.simulated
       ? await openRazorpayCheckout(order, schoolForPayment)
-      : await openRazorpayHostedLink(
-          await api.createRazorpayLink({
-            amount,
-            type: "Membership",
-            schoolName: payload.name,
-            email: payload.contact
-          }),
-          order,
-          schoolForPayment
-        );
+      : await (async () => {
+          pendingSchool = await api.create("schools", {
+            ...payload,
+            amount: order.amount / 100,
+            paymentPending: true,
+            paymentMethod: "Razorpay emailed link",
+            gatewayOrderId: order.id
+          });
+          return openRazorpayHostedLink(
+            await api.createRazorpayLink({
+              amount,
+              type: "Membership",
+              schoolId: pendingSchool.id,
+              schoolName: payload.name,
+              email: payload.contact,
+              description: `Yarra Consortium membership fee for ${payload.name}`
+            }),
+            order,
+            schoolForPayment
+          );
+        })();
+
+    if (payment.pending) {
+      formStatus.textContent = `Payment link sent to ${payload.contact}. You will get a notification when Razorpay confirms ${payload.name}'s payment.`;
+      showToast(`Payment link emailed to ${payload.contact}.`);
+      await refresh();
+      setView("schoolDashboard");
+      return;
+    }
 
     await api.create("schools", {
       ...payload,
@@ -1155,7 +1477,7 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
       gatewayOrderId: payment.razorpay_order_id
     });
     formStatus.textContent =
-      "Payment successful. School dashboard unlocked and invoice generated.";
+      `${payload.name} membership payment recorded. School dashboard unlocked and invoice generated.`;
     await refresh();
     setView("schoolDashboard");
   } catch (error) {
@@ -1170,7 +1492,7 @@ paymentRescueButton.addEventListener("click", () => {
   clearPaymentOverlay();
   paymentRescueButton.classList.add("hidden");
   document.querySelector("#schoolForm .form-status").textContent =
-    "Payment screen cancelled. Click Save and continue to payment to try again.";
+    "Payment screen cancelled. Click Create school and collect membership payment to try again.";
 });
 
 document.querySelector("#paymentButton").addEventListener("click", () => {
@@ -1330,8 +1652,9 @@ vendorCategory.addEventListener("change", renderVendors);
 
 roleSelect.addEventListener("change", async () => {
   try {
+    closeTutorial();
     const authUser = await api.updateSessionRole(roleSelect.value);
-    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+    setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
     await refresh();
     showToast(`${roleSelect.value} permissions applied to this secure session.`);
   } catch (error) {
@@ -1461,18 +1784,21 @@ document.querySelector("#payments").addEventListener("click", (event) => {
 
 document.querySelector(".promotion-banner .ghost-button").addEventListener("click", () => {
   const promotion = state.promotions[0];
-  showToast(`${promotion.name}: ${promotion.placement} is ${promotion.status}.`);
+  showToast(promotion ? `${promotion.name}: ${promotion.placement} is ${promotion.status}.` : "No vendor promotions yet.");
 });
 
 syncSessionTimeoutControls();
 
-if (sessionStorage.getItem(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
-  setAuthenticated(true);
+if (getSessionValue(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
   try {
+    suppressSessionExpiryToast = true;
+    setAuthenticated(true);
     roleSelect.value = currentRole();
     await refresh();
   } catch {
-    expireSession("Your secure session expired. Please sign in again.");
+    expireSession("Your secure session expired. Please sign in again.", { silent: true });
+  } finally {
+    suppressSessionExpiryToast = false;
   }
 } else {
   setAuthenticated(false);
