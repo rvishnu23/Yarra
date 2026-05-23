@@ -39,11 +39,23 @@
             <option>Vendor</option>
           </select>
         </label>
+        <label>
+          Session timeout
+          <select name="timeoutMinutes" id="loginSessionTimeout">
+            <option value="1">1 minute</option>
+            <option value="5">5 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30" selected>30 minutes</option>
+            <option value="60">60 minutes</option>
+            <option value="120">120 minutes</option>
+          </select>
+        </label>
         <button class="primary-button" type="submit">Sign in</button>
         <button class="google-button" id="gmailLoginButton" type="button">
           <span aria-hidden="true">G</span>
           Continue with Gmail
         </button>
+        <button class="ghost-button" id="vendorSignupOpenButton" type="button">Vendor sign-up information</button>
         <p class="login-note">Use a Gmail address. Real Google OAuth can be enabled when a Google Client ID is added.</p>
       </form>
     </section>
@@ -60,6 +72,7 @@
 
         <nav class="module-nav" aria-label="Modules">
           <button class="nav-item is-active" type="button" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" type="button" data-view="userManagement">User management</button>
           <button class="nav-item" type="button" data-view="schoolDashboard">School dashboard</button>
           <button class="nav-item" type="button" data-view="onboarding">School onboarding</button>
           <button class="nav-item" type="button" data-view="payments">Payments & invoices</button>
@@ -67,6 +80,7 @@
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
           <button class="nav-item" type="button" data-view="library">Content library</button>
+          <button class="nav-item" type="button" data-view="vendorSignup">Vendor sign-up</button>
           <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
           <button class="nav-item" type="button" data-view="profiles">School profiles</button>
         </nav>
@@ -95,12 +109,29 @@
                 <option>Vendor</option>
               </select>
             </label>
+            <label class="session-control">
+              <span>Session</span>
+              <select id="sessionTimeoutSelect" aria-label="Session timeout">
+                <option value="1">1 min</option>
+                <option value="5">5 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">60 min</option>
+                <option value="120">120 min</option>
+              </select>
+            </label>
+            <span class="session-status" id="sessionStatus">Session --</span>
             <button class="icon-button" id="notificationButton" type="button" aria-label="Notifications">
               <span aria-hidden="true">3</span>
             </button>
             <button class="ghost-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
+        <div class="session-warning hidden" id="sessionWarning" role="status">
+          <strong>Session expiring soon</strong>
+          <span>Extend now or continue working to refresh your secure session.</span>
+          <button class="ghost-button" id="extendSessionButton" type="button">Extend session</button>
+        </div>
 
         <main>
           <section class="view is-active" id="dashboard" aria-label="Dashboard">
@@ -127,58 +158,82 @@
               </article>
             </div>
 
-            <div class="dashboard-grid">
-              <section class="panel large-panel">
-                <div class="panel-heading">
-                  <div>
-                    <p class="eyebrow">Operations</p>
-                    <h2>Platform activity</h2>
-                  </div>
-                  <button class="ghost-button" type="button" id="exportButton">Export CSV</button>
-                </div>
-                <div class="activity-list">
-                  <article>
-                    <span class="status-dot green"></span>
-                    <div>
-                      <strong>Greenfield Public School</strong>
-                      <p>Membership activated after Razorpay confirmation.</p>
-                    </div>
-                    <time>09:20</time>
-                  </article>
-                  <article>
-                    <span class="status-dot amber"></span>
-                    <div>
-                      <strong>Back to School - July 2026</strong>
-                      <p>Vendor promotion campaign awaiting admin approval.</p>
-                    </div>
-                    <time>10:05</time>
-                  </article>
-                  <article>
-                    <span class="status-dot blue"></span>
-                    <div>
-                      <strong>Leadership Conclave</strong>
-                      <p>84 seats booked, 16 seats open, waitlist enabled.</p>
-                    </div>
-                    <time>11:40</time>
-                  </article>
-                </div>
+            <section class="panel dashboard-welcome">
+              <p class="eyebrow">Workspace</p>
+              <h2>Choose a module from the sidebar to continue.</h2>
+              <p class="panel-copy">
+                Your available modules are controlled by your selected role. Students see age-gated learning areas,
+                vendors see their marketplace workspace, and school teams see school operations.
+              </p>
+            </section>
+          </section>
+
+          <section class="view" id="userManagement" aria-label="User management">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Phase 1</p>
+                <h2>Excel Upload Engine</h2>
+                <p class="panel-copy">Download the exact template, validate files before any commit, then confirm only after the preview looks right.</p>
+              </div>
+            </div>
+
+            <div class="upload-engine-grid">
+              <section class="panel">
+                <p class="eyebrow">1. Template & reference data</p>
+                <h3>Choose upload type</h3>
+                <p class="panel-copy">Creates student users or teacher users using the roster template format.</p>
+                <label class="search-field">
+                  <span>Upload type</span>
+                  <select id="uploadType">
+                    <option value="staff_roster">Teacher Database</option>
+                    <option value="student_roster">Student Database</option>
+                  </select>
+                </label>
+                <a class="primary-button template-link" id="downloadTemplateLink" href="assets/templates/staff_roster_template.xlsx" download>Download Template</a>
+                <p class="download-status" id="templateSaveStatus">Saves directly to your Windows Downloads folder.</p>
               </section>
 
               <section class="panel">
-                <div class="panel-heading compact">
-                  <div>
-                    <p class="eyebrow">Moderation</p>
-                    <h2>Review queue</h2>
-                  </div>
-                </div>
-                <div class="queue-list">
-                  <button type="button">2 vendor uploads</button>
-                  <button type="button">5 comments flagged</button>
-                  <button type="button">3 school profile edits</button>
-                  <button type="button">1 refund request</button>
-                </div>
+                <p class="eyebrow">2. Validate upload</p>
+                <h3>Validate Excel file</h3>
+                <p class="panel-copy">Validation checks required columns, required values, and email formats before writing users.</p>
+                <form class="upload-form" id="uploadForm">
+                  <label>
+                    Excel file
+                    <input id="uploadFile" name="file" type="file" accept=".xlsx" required>
+                  </label>
+                  <button class="primary-button" type="submit">Validate Upload</button>
+                </form>
               </section>
             </div>
+
+            <section class="panel upload-preview-panel">
+              <p class="eyebrow">3. Preview & confirm</p>
+              <div id="uploadPreview" class="empty-preview">
+                Pick a template, choose a file, and validate it to see row previews and errors here.
+              </div>
+              <button class="primary-button hidden" id="commitUploadButton" type="button">Commit users</button>
+            </section>
+
+            <section class="panel">
+              <p class="eyebrow">4. Upload history</p>
+              <h3>Recent roster uploads</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Upload type</th>
+                      <th>File name</th>
+                      <th>Record count</th>
+                      <th>Error count</th>
+                      <th>Status</th>
+                      <th>Created at</th>
+                    </tr>
+                  </thead>
+                  <tbody id="uploadHistoryBody"></tbody>
+                </table>
+              </div>
+            </section>
           </section>
 
           <section class="view" id="schoolDashboard" aria-label="School dashboard">
@@ -347,6 +402,131 @@
               <button class="filter-chip" type="button" data-filter="Webinar">Webinar</button>
             </div>
             <div class="card-grid three" id="libraryGrid"></div>
+          </section>
+
+          <section class="view" id="vendorSignup" aria-label="Vendor sign-up">
+            <div class="vendor-hero">
+              <div>
+                <p class="eyebrow">Vendor onboarding</p>
+                <h2>Host your services inside the Yarra vendor marketplace.</h2>
+                <p>
+                  Yarra Consortium connects verified school vendors with member schools through a curated
+                  procurement environment. Vendors can publish approved listings, promote seasonal offers,
+                  and receive enquiries from schools looking for trusted partners.
+                </p>
+                <div class="hero-actions">
+                  <button class="primary-button" id="vendorApplyButton" type="button">Apply as vendor</button>
+                  <button class="ghost-button" id="vendorPreviewButton" type="button">View sample platform</button>
+                </div>
+              </div>
+              <img src="https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1000&q=80" alt="Vendor team reviewing a digital marketplace dashboard">
+            </div>
+
+            <div class="vendor-info-grid">
+              <section class="panel">
+                <p class="eyebrow">About Yarra Consortium</p>
+                <h3>A school collaboration and procurement network.</h3>
+                <p class="panel-copy">
+                  The platform brings schools, educators, students, programs, content, and vetted vendors
+                  into one member-only ecosystem. Vendor visibility is marketplace-only unless Super Admin
+                  explicitly grants access to campaign or sponsored program surfaces.
+                </p>
+              </section>
+              <section class="panel">
+                <p class="eyebrow">Akshar Arbol contact</p>
+                <h3>Admin coordination</h3>
+                <div class="contact-block">
+                  <strong>Akshar Arbol Admin</strong>
+                  <span>Email: admin@akshararbol.edu.in</span>
+                  <span>Phone: +91 98765 43210</span>
+                  <span>Role: vendor verification, approvals, school coordination</span>
+                </div>
+              </section>
+              <section class="panel">
+                <p class="eyebrow">Vendor procedure</p>
+                <ol class="procedure-list">
+                  <li>Submit company details, category, contact, logo, and consortium offer.</li>
+                  <li>Akshar Arbol/Yarra admin reviews the listing and verifies fit for schools.</li>
+                  <li>Approved vendors go live in the directory with enquiry routing enabled.</li>
+                  <li>Promotional banners and featured placements are submitted for Super Admin approval.</li>
+                  <li>Campaign performance and enquiries are tracked inside the vendor workspace.</li>
+                </ol>
+              </section>
+              <section class="panel">
+                <p class="eyebrow">Benefits</p>
+                <div class="benefit-list">
+                  <article><strong>Verified school reach</strong><span>Access member schools looking for trusted procurement partners.</span></article>
+                  <article><strong>Curated categories</strong><span>Stand out under uniforms, books, EdTech, transport, sports, infrastructure, and more.</span></article>
+                  <article><strong>Promotions engine</strong><span>Run seasonal campaigns such as Back to School offers with admin approval.</span></article>
+                  <article><strong>Lead management</strong><span>Receive school enquiries through a self-contained marketplace inbox.</span></article>
+                </div>
+              </section>
+            </div>
+
+            <section class="sample-platform">
+              <div class="section-bar">
+                <div>
+                  <p class="eyebrow">Sample vendor platform</p>
+                  <h2>What your vendor workspace looks like</h2>
+                </div>
+              </div>
+              <div class="sample-grid">
+                <article>
+                  <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=900&q=80" alt="Business dashboard with analytics documents">
+                  <h3>Listing dashboard</h3>
+                  <p>Manage profile status, category, offers, and school-facing details.</p>
+                </article>
+                <article>
+                  <img src="https://images.unsplash.com/photo-1556745757-8d76bdb6984b?auto=format&fit=crop&w=900&q=80" alt="Team reviewing customer support and enquiries">
+                  <h3>Enquiry inbox</h3>
+                  <p>Track school enquiries and follow up with procurement teams.</p>
+                </article>
+                <article>
+                  <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=80" alt="Analytics charts on laptop">
+                  <h3>Promotion previews</h3>
+                  <p>Submit campaign banners, offers, and placement requests for approval.</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel vendor-apply-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Vendor application</p>
+                  <h2>Submit your company for approval</h2>
+                </div>
+              </div>
+              <form class="platform-form" id="vendorSignupForm">
+                <label>
+                  Company name
+                  <input name="name" type="text" value="New School Partner Pvt Ltd" required>
+                </label>
+                <label>
+                  Category
+                  <select name="category">
+                    <option>Uniforms</option>
+                    <option>Books & Stationery</option>
+                    <option>EdTech</option>
+                    <option>Furniture & Fixtures</option>
+                    <option>Transport</option>
+                    <option>Canteen Supplies</option>
+                    <option>Sports Equipment</option>
+                    <option>Lab Supplies</option>
+                    <option>Digital Infrastructure</option>
+                  </select>
+                </label>
+                <label>
+                  Contact email
+                  <input name="contact" type="email" value="vendor@example.com" required>
+                </label>
+                <label>
+                  Consortium offer
+                  <textarea name="offer" rows="3" required>Introductory member-school pricing and priority onboarding support.</textarea>
+                </label>
+                <button class="primary-button" type="submit">Submit for admin approval</button>
+                <p class="form-status" aria-live="polite"></p>
+              </form>
+            </section>
           </section>
 
           <section class="view" id="vendors" aria-label="Vendor marketplace">

@@ -1,65 +1,97 @@
+const SESSION_STORAGE_KEY = "yaara-session";
+const USER_STORAGE_KEY = "yaara-user";
+const AUTH_STORAGE_KEY = "yaara-authenticated";
+const SESSION_TIMEOUT_STORAGE_KEY = "yaara-session-timeout-minutes";
+const defaultTimeoutMinutes = 30;
+
+const getStoredJson = (key, fallback = {}) => {
+  try {
+    return JSON.parse(sessionStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+};
+
+const currentSession = () => getStoredJson(SESSION_STORAGE_KEY, null);
+
+const storeSession = (session) => {
+  if (!session?.id) return;
+  sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  updateSessionUi();
+};
+
+const updateSessionFromHeaders = (response) => {
+  const session = currentSession();
+  const expiresAt = response.headers.get("X-Session-Expires-At");
+  const timeoutMinutes = response.headers.get("X-Session-Timeout-Minutes");
+  if (!session || !expiresAt) return;
+  storeSession({
+    ...session,
+    expiresAt,
+    timeoutMinutes: Number(timeoutMinutes || session.timeoutMinutes)
+  });
+};
+
+const handleResponse = async (response, fallbackError) => {
+  const body = await response.json().catch(() => ({}));
+  updateSessionFromHeaders(response);
+  if (response.status === 401) {
+    expireSession(body.error || "Your secure session has expired. Please sign in again.");
+    throw new Error(body.error || fallbackError);
+  }
+  if (!response.ok) {
+    throw new Error(body.error || fallbackError);
+  }
+  if (body.session) {
+    storeSession(body.session);
+  }
+  return body;
+};
+
 const api = {
   async state() {
-    const response = await fetch("/api/state");
-    return response.json();
+    const response = await fetch(`/api/state?role=${encodeURIComponent(currentRole())}`);
+    return handleResponse(response, "Unable to load platform state");
   },
   async create(resource, payload) {
     const response = await fetch(`/api/${resource}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(payload)
     });
-    if (!response.ok) {
-      throw new Error(`Unable to save ${resource}`);
-    }
-    return response.json();
+    return handleResponse(response, `Unable to save ${resource}`);
   },
   async createRazorpayOrder(payload) {
     const response = await fetch("/api/payments/razorpay-order", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(payload)
     });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.error || "Unable to create Razorpay order");
-    }
-    return body;
+    return handleResponse(response, "Unable to create Razorpay order");
   },
   async createRazorpayLink(payload) {
     const response = await fetch("/api/payments/razorpay-link", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(payload)
     });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.error || "Unable to create Razorpay payment link");
-    }
-    return body;
+    return handleResponse(response, "Unable to create Razorpay payment link");
   },
   async paymentConfig() {
     const response = await fetch("/api/payments/config");
-    return response.json();
+    return handleResponse(response, "Unable to load payment configuration");
   },
   async createUpiIntent(payload) {
     const response = await fetch("/api/payments/upi-intent", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify(payload)
     });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.error || "Unable to create UPI payment");
-    }
-    return body;
+    return handleResponse(response, "Unable to create UPI payment");
   },
   async post(path) {
-    const response = await fetch(path, { method: "POST" });
-    if (!response.ok) {
-      throw new Error("Action failed");
-    }
-    return response.json();
+    const response = await fetch(path, { method: "POST", headers: authHeaders(false) });
+    return handleResponse(response, "Action failed");
   },
   async gmailLogin(payload) {
     const response = await fetch("/api/auth/gmail", {
@@ -67,35 +99,110 @@ const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.error || "Gmail login failed");
-    }
-    return body;
+    return handleResponse(response, "Gmail login failed");
+  },
+  async extendSession(timeoutMinutes) {
+    const response = await fetch("/api/auth/extend", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ timeoutMinutes })
+    });
+    return handleResponse(response, "Unable to extend session");
+  },
+  async updateSessionRole(role) {
+    const response = await fetch("/api/auth/role", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ role, timeoutMinutes: selectedSessionTimeoutMinutes() })
+    });
+    return handleResponse(response, "Unable to update session role");
+  },
+  async logout() {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: authHeaders(false)
+    });
+    return handleResponse(response, "Unable to sign out");
+  },
+  async validateUpload(formData) {
+    const response = await fetch("/api/uploads/validate", {
+      method: "POST",
+      headers: authHeaders(false),
+      body: formData
+    });
+    return handleResponse(response, "Upload validation failed");
+  },
+  async commitUpload(payload) {
+    const response = await fetch("/api/uploads/commit", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(response, "Upload commit failed");
+  },
+  async saveTemplate(uploadTypeValue) {
+    const response = await fetch("/api/templates/save", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ uploadType: uploadTypeValue })
+    });
+    return handleResponse(response, "Template save failed");
   }
 };
+
+const rolePermissions = {
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "library", "profiles"],
+  Student: ["dashboard", "events", "exchange", "library"],
+  Vendor: ["dashboard", "vendorSignup", "vendors"]
+};
+
+const currentRole = () => roleSelect?.value || getStoredJson(USER_STORAGE_KEY, {}).role || "School Admin";
+
+const authHeaders = (json = true) => ({
+  ...(json ? { "Content-Type": "application/json" } : {}),
+  "X-User-Role": currentRole(),
+  ...(currentSession()?.id ? { "X-Session-Id": currentSession().id } : {}),
+  "X-Session-Timeout-Minutes": String(selectedSessionTimeoutMinutes())
+});
 
 const navButtons = document.querySelectorAll(".nav-item");
 const views = document.querySelectorAll(".view");
 const toast = document.querySelector("#toast");
 const loginForm = document.querySelector("#loginForm");
 const gmailLoginButton = document.querySelector("#gmailLoginButton");
+const vendorSignupOpenButton = document.querySelector("#vendorSignupOpenButton");
 const roleSelect = document.querySelector("#roleSelect");
+const loginSessionTimeout = document.querySelector("#loginSessionTimeout");
+const sessionTimeoutSelect = document.querySelector("#sessionTimeoutSelect");
+const sessionStatus = document.querySelector("#sessionStatus");
+const sessionWarning = document.querySelector("#sessionWarning");
+const extendSessionButton = document.querySelector("#extendSessionButton");
 const vendorCategory = document.querySelector("#vendorCategory");
 const librarySearch = document.querySelector("#librarySearch");
 const metricsGrid = document.querySelector(".metrics-grid");
-const activityList = document.querySelector(".activity-list");
-const queueList = document.querySelector(".queue-list");
 const notificationButton = document.querySelector("#notificationButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const invoicePanel = document.querySelector(".invoice-panel");
 const studentGrid = document.querySelector("#studentGrid");
 const paymentConfig = document.querySelector("#paymentConfig");
 const paymentRescueButton = document.querySelector("#paymentRescueButton");
+const uploadType = document.querySelector("#uploadType");
+const uploadForm = document.querySelector("#uploadForm");
+const uploadPreview = document.querySelector("#uploadPreview");
+const commitUploadButton = document.querySelector("#commitUploadButton");
+const downloadTemplateLink = document.querySelector("#downloadTemplateLink");
+const templateSaveStatus = document.querySelector("#templateSaveStatus");
+const uploadHistoryBody = document.querySelector("#uploadHistoryBody");
 
 let state = {};
 let libraryFilter = "All";
 let paymentConfigState = {};
+let pendingUpload = null;
+let sessionClock = null;
+let lastSessionActivityAt = 0;
+let sessionExtendInFlight = false;
 
 const imageMap = {
   event: "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=900&q=80",
@@ -121,18 +228,142 @@ const showToast = (message) => {
   }, 3000);
 };
 
+function selectedSessionTimeoutMinutes() {
+  const stored = Number(localStorage.getItem(SESSION_TIMEOUT_STORAGE_KEY));
+  const fromControl = Number(sessionTimeoutSelect?.value || loginSessionTimeout?.value);
+  const value = Number.isFinite(stored) && stored > 0 ? stored : fromControl || defaultTimeoutMinutes;
+  return Math.min(240, Math.max(1, Math.round(value)));
+}
+
+function syncSessionTimeoutControls(value = selectedSessionTimeoutMinutes()) {
+  localStorage.setItem(SESSION_TIMEOUT_STORAGE_KEY, String(value));
+  [loginSessionTimeout, sessionTimeoutSelect].forEach((control) => {
+    if (!control) return;
+    if (![...control.options].some((option) => option.value === String(value))) {
+      control.add(new Option(`${value} min`, String(value)));
+    }
+    control.value = String(value);
+  });
+}
+
+function formatRemaining(milliseconds) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function clearSessionClock() {
+  window.clearInterval(sessionClock);
+  sessionClock = null;
+}
+
+function updateSessionUi() {
+  const session = currentSession();
+  if (!session?.expiresAt) {
+    clearSessionClock();
+    sessionStatus && (sessionStatus.textContent = "Session --");
+    sessionStatus?.classList.remove("is-warning");
+    sessionWarning?.classList.add("hidden");
+    return;
+  }
+
+  const remainingMs = Date.parse(session.expiresAt) - Date.now();
+  if (remainingMs <= 0) {
+    expireSession("Your secure session expired. Please sign in again.");
+    return;
+  }
+
+  const timeoutMs = Number(session.timeoutMinutes || selectedSessionTimeoutMinutes()) * 60 * 1000;
+  const warningMs = Math.min(60 * 1000, Math.max(20 * 1000, Math.round(timeoutMs / 3)));
+  const warning = remainingMs <= warningMs;
+
+  if (sessionStatus) {
+    sessionStatus.textContent = `Session ${formatRemaining(remainingMs)}`;
+    sessionStatus.classList.toggle("is-warning", warning);
+  }
+  sessionWarning?.classList.toggle("hidden", !warning);
+
+  if (!sessionClock) {
+    sessionClock = window.setInterval(updateSessionUi, 1000);
+  }
+}
+
+function clearStoredSession() {
+  clearSessionClock();
+  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  sessionStorage.removeItem(USER_STORAGE_KEY);
+  sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  sessionStatus && (sessionStatus.textContent = "Session --");
+  sessionStatus?.classList.remove("is-warning");
+  sessionWarning?.classList.add("hidden");
+}
+
+function expireSession(message) {
+  clearStoredSession();
+  document.body.classList.remove("is-authenticated");
+  clearPaymentOverlay();
+  document.querySelectorAll(".modal-backdrop").forEach((modalBackdrop) => modalBackdrop.remove());
+  showToast(message);
+}
+
+async function extendSecureSession({ notify = false } = {}) {
+  if (!currentSession()?.id || sessionExtendInFlight) return;
+  sessionExtendInFlight = true;
+  try {
+    await api.extendSession(selectedSessionTimeoutMinutes());
+    if (notify) showToast("Secure session extended.");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    sessionExtendInFlight = false;
+  }
+}
+
+function recordSessionActivity() {
+  if (!currentSession()?.id) return;
+  const now = Date.now();
+  if (now - lastSessionActivityAt < 30000) return;
+  lastSessionActivityAt = now;
+  extendSecureSession();
+}
+
 const clearPaymentOverlay = () => {
   document.querySelectorAll(".razorpay-container, iframe[src*='razorpay']").forEach((item) => item.remove());
   document.body.style.overflow = "";
 };
 
 const setView = (viewId) => {
+  const allowed = rolePermissions[currentRole()] || rolePermissions["School Admin"];
+  if (!allowed.includes(viewId)) {
+    showToast(`${currentRole()} cannot access that module.`);
+    viewId = allowed[0];
+  }
   navButtons.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === viewId);
   });
   views.forEach((view) => {
     view.classList.toggle("is-active", view.id === viewId);
   });
+};
+
+const applyRolePermissions = () => {
+  const role = currentRole();
+  const allowed = rolePermissions[role] || rolePermissions["School Admin"];
+  navButtons.forEach((button) => {
+    button.hidden = !allowed.includes(button.dataset.view);
+  });
+  document.querySelector("#eventButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  document.querySelector("#paymentButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  document.querySelector("#studentButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  document.querySelector("#inviteStudentButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  document.querySelector("#exchangeButton").hidden = role === "Vendor";
+  document.querySelector(".membership-card").hidden = role === "Vendor";
+
+  const activeView = document.querySelector(".view.is-active")?.id || allowed[0];
+  if (!allowed.includes(activeView)) {
+    setView(allowed[0]);
+  }
 };
 
 const tagList = (tags) => `
@@ -186,49 +417,14 @@ const renderMetrics = () => {
 };
 
 const renderDashboard = () => {
-  const latestPayment = state.payments[0];
-  const latestPromotion = state.promotions[0];
-  const latestEvent = state.events[0];
-
-  activityList.innerHTML = `
-    <article>
-      <span class="status-dot green"></span>
-      <div>
-        <strong>${schoolName(latestPayment?.schoolId)}</strong>
-        <p>${latestPayment?.type || "Membership"} payment ${latestPayment?.status || "received"} with invoice ${latestPayment?.invoice || "pending"}.</p>
-      </div>
-      <time>${latestPayment?.createdAt || "Today"}</time>
-    </article>
-    <article>
-      <span class="status-dot amber"></span>
-      <div>
-        <strong>${latestPromotion?.name || "Promotion campaign"}</strong>
-        <p>${latestPromotion?.placement || "Placement"} is ${latestPromotion?.status || "queued"}.</p>
-      </div>
-      <time>${latestPromotion?.startDate || "Queued"}</time>
-    </article>
-    <article>
-      <span class="status-dot blue"></span>
-      <div>
-        <strong>${latestEvent?.title || "Event"}</strong>
-        <p>${latestEvent?.registered || 0} registered of ${latestEvent?.capacity || 0}; ${latestEvent?.format || "Hybrid"} format.</p>
-      </div>
-      <time>${latestEvent?.date || "Scheduled"}</time>
-    </article>
-  `;
-
-  queueList.innerHTML = `
-    <button type="button">${state.metrics.reviewQueue.vendorUploads} vendor uploads</button>
-    <button type="button">${state.metrics.reviewQueue.comments} comments flagged</button>
-    <button type="button">${state.schools.filter((school) => school.status !== "Active").length} school approvals</button>
-    <button type="button">${state.metrics.reviewQueue.promotions} promotion reviews</button>
-  `;
+  document.querySelector(".dashboard-welcome h2").textContent = `${currentRole()} workspace`;
 };
 
 const schoolName = (id) => state.schools.find((school) => school.id === id)?.name || "Member school";
 
 const renderSchoolDashboard = () => {
   const school = state.schools[0];
+  if (!school) return;
   const schoolStudents = (state.students || []).filter((student) => student.schoolId === school.id);
   const schoolPayments = state.payments.filter((payment) => payment.schoolId === school.id);
   const nextEvents = state.events.slice(0, 3);
@@ -386,7 +582,7 @@ const renderVendors = () => {
             image: imageMap.vendor,
             className: "vendor-card",
             action:
-              vendor.status === "Approved"
+              vendor.status === "Approved" || currentRole() !== "Super Admin"
                 ? ""
                 : `<button class="ghost-button approve-vendor" type="button" data-id="${vendor.id}">Approve vendor</button>`
           })
@@ -502,6 +698,7 @@ const renderStudents = () => {
 
 const renderProfiles = () => {
   const activeSchool = state.schools[0];
+  if (!activeSchool) return;
   document.querySelector(".school-profile div").innerHTML = `
     <p class="eyebrow">${activeSchool.board} - ${activeSchool.city}</p>
     <h3>${activeSchool.name}</h3>
@@ -517,7 +714,28 @@ const renderNotifications = () => {
   notificationButton.innerHTML = `<span aria-hidden="true">${unread}</span>`;
 };
 
+const renderUploadHistory = () => {
+  const history = state.uploadHistory || [];
+  uploadHistoryBody.innerHTML = history.length
+    ? history
+        .map(
+          (item) => `
+            <tr>
+              <td>${item.uploadType}</td>
+              <td>${item.fileName}</td>
+              <td>${item.recordCount}</td>
+              <td>${item.errorCount}</td>
+              <td><span class="status-pill">${item.status}</span></td>
+              <td>${item.createdAt}</td>
+            </tr>
+          `
+        )
+        .join("")
+    : `<tr><td colspan="6">No uploads committed yet.</td></tr>`;
+};
+
 const renderAll = () => {
+  applyRolePermissions();
   renderMetrics();
   renderDashboard();
   renderSchoolDashboard();
@@ -530,6 +748,7 @@ const renderAll = () => {
   renderStudents();
   renderProfiles();
   renderNotifications();
+  renderUploadHistory();
 };
 
 const refresh = async () => {
@@ -542,20 +761,25 @@ const refresh = async () => {
 const setAuthenticated = (value) => {
   document.body.classList.toggle("is-authenticated", value);
   if (value) {
-    sessionStorage.setItem("yaara-authenticated", "true");
+    sessionStorage.setItem(AUTH_STORAGE_KEY, "true");
+    updateSessionUi();
   } else {
-    sessionStorage.removeItem("yaara-authenticated");
+    clearStoredSession();
   }
 };
 
 const completeGmailLogin = async () => {
   const formData = new FormData(loginForm);
+  const timeoutMinutes = Number(formData.get("timeoutMinutes") || selectedSessionTimeoutMinutes());
+  syncSessionTimeoutControls(timeoutMinutes);
   const authUser = await api.gmailLogin({
     email: formData.get("email"),
-    role: formData.get("role")
+    role: formData.get("role"),
+    timeoutMinutes
   });
   roleSelect.value = authUser.role;
-  sessionStorage.setItem("yaara-user", JSON.stringify(authUser));
+  sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+  storeSession(authUser.session);
   setAuthenticated(true);
   await refresh();
   showToast(`Signed in with Gmail as ${authUser.email}.`);
@@ -852,9 +1076,33 @@ gmailLoginButton.addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#logoutButton").addEventListener("click", () => {
+vendorSignupOpenButton.addEventListener("click", async () => {
+  try {
+    syncSessionTimeoutControls();
+    const authUser = await api.gmailLogin({
+      email: "vendor@gmail.com",
+      role: "Vendor",
+      timeoutMinutes: selectedSessionTimeoutMinutes()
+    });
+    roleSelect.value = authUser.role;
+    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+    storeSession(authUser.session);
+    setAuthenticated(true);
+    await refresh();
+    setView("vendorSignup");
+    showToast("Vendor sign-up information opened.");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+document.querySelector("#logoutButton").addEventListener("click", async () => {
+  try {
+    if (currentSession()?.id) await api.logout();
+  } catch {
+    // The local session is still cleared even if the server session already expired.
+  }
   setAuthenticated(false);
-  sessionStorage.removeItem("yaara-user");
   showToast("Signed out.");
 });
 
@@ -943,6 +1191,107 @@ document.querySelector("#paymentButton").addEventListener("click", () => {
   );
 });
 
+const setTemplateSaveStatus = (message, status = "") => {
+  if (!templateSaveStatus) return;
+  templateSaveStatus.textContent = message;
+  templateSaveStatus.classList.toggle("is-saved", status === "saved");
+  templateSaveStatus.classList.toggle("is-error", status === "error");
+};
+
+const updateTemplateDownloadUi = () => {
+  const isStudent = uploadType.value === "student_roster";
+  downloadTemplateLink.href = isStudent
+    ? "assets/templates/student_roster_template.xlsx"
+    : "assets/templates/staff_roster_template.xlsx";
+  downloadTemplateLink.textContent = `Download ${isStudent ? "Student" : "Teacher"} Template`;
+  setTemplateSaveStatus("Saves directly to your Windows Downloads folder.");
+};
+
+uploadType.addEventListener("change", updateTemplateDownloadUi);
+
+downloadTemplateLink.addEventListener("click", async (event) => {
+  event.preventDefault();
+  const href = downloadTemplateLink.getAttribute("href");
+  const fileName = href.split("/").pop();
+  setTemplateSaveStatus(`Saving ${fileName} to your Downloads folder...`);
+  try {
+    const saved = await api.saveTemplate(uploadType.value);
+    setTemplateSaveStatus(`Saved on this computer: ${saved.path}`, "saved");
+    showToast(`${fileName} saved to Downloads.`);
+
+    try {
+      const response = await fetch(href);
+      if (!response.ok) throw new Error("Template download failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // The server-side save above is the reliable path in the desktop app.
+    }
+  } catch (error) {
+    setTemplateSaveStatus(error.message, "error");
+    showToast(error.message);
+  }
+});
+
+updateTemplateDownloadUi();
+
+uploadForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = document.querySelector("#uploadFile").files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.set("uploadType", uploadType.value);
+  formData.set("file", file);
+  uploadPreview.className = "empty-preview";
+  uploadPreview.textContent = "Validating upload...";
+  commitUploadButton.classList.add("hidden");
+  try {
+    pendingUpload = await api.validateUpload(formData);
+    const rows = pendingUpload.records.slice(0, 6);
+    uploadPreview.className = "";
+    uploadPreview.innerHTML = `
+      <div class="upload-summary">
+        <span class="status-pill">${pendingUpload.errorCount ? "FAILED" : "READY"}</span>
+        <strong>${pendingUpload.recordCount} records</strong>
+        <span>${pendingUpload.errorCount} errors</span>
+      </div>
+      ${
+        pendingUpload.errors.length
+          ? `<div class="error-list">${pendingUpload.errors.map((error) => `<p>Row ${error.row}: ${error.field} - ${error.message}</p>`).join("")}</div>`
+          : `<div class="table-wrap"><table><thead><tr>${pendingUpload.headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows
+              .map((row) => `<tr>${pendingUpload.headers.map((header) => `<td>${row[header] || ""}</td>`).join("")}</tr>`)
+              .join("")}</tbody></table></div>`
+      }
+    `;
+    if (!pendingUpload.errorCount) commitUploadButton.classList.remove("hidden");
+  } catch (error) {
+    uploadPreview.className = "empty-preview";
+    uploadPreview.textContent = error.message;
+  }
+});
+
+commitUploadButton.addEventListener("click", async () => {
+  if (!pendingUpload || pendingUpload.errorCount) return;
+  const result = await api.commitUpload({
+    uploadType: pendingUpload.uploadType,
+    fileName: pendingUpload.fileName,
+    records: pendingUpload.records
+  });
+  showToast(`${result.recordCount} users committed.`);
+  pendingUpload = null;
+  commitUploadButton.classList.add("hidden");
+  uploadPreview.className = "empty-preview";
+  uploadPreview.textContent = "Upload committed. Choose another file to continue.";
+  await refresh();
+});
+
 studentGrid.addEventListener("click", () => {});
 
 const openStudentModal = () => {
@@ -979,8 +1328,31 @@ document.querySelectorAll(".filter-chip").forEach((button) => {
 librarySearch.addEventListener("input", renderLibrary);
 vendorCategory.addEventListener("change", renderVendors);
 
-roleSelect.addEventListener("change", () => {
-  showToast(`${roleSelect.value} view selected. API-backed RBAC is the next production integration layer.`);
+roleSelect.addEventListener("change", async () => {
+  try {
+    const authUser = await api.updateSessionRole(roleSelect.value);
+    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authUser));
+    await refresh();
+    showToast(`${roleSelect.value} permissions applied to this secure session.`);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+[loginSessionTimeout, sessionTimeoutSelect].forEach((control) => {
+  control?.addEventListener("change", async () => {
+    const value = Number(control.value || defaultTimeoutMinutes);
+    syncSessionTimeoutControls(value);
+    if (currentSession()?.id) {
+      await extendSecureSession({ notify: true });
+    }
+  });
+});
+
+extendSessionButton?.addEventListener("click", () => extendSecureSession({ notify: true }));
+
+["click", "keydown", "pointerdown", "touchstart"].forEach((eventName) => {
+  window.addEventListener(eventName, recordSessionActivity, { passive: true });
 });
 
 notificationButton.addEventListener("click", async () => {
@@ -991,21 +1363,6 @@ notificationButton.addEventListener("click", async () => {
   showToast(unreadTitles || "No unread notifications.");
   await api.post("/api/notifications/read");
   await refresh();
-});
-
-document.querySelector("#exportButton").addEventListener("click", () => {
-  const rows = [
-    ["School", "City", "Board", "Status"],
-    ...state.schools.map((school) => [school.name, school.city, school.board, school.status])
-  ];
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "yaara-schools.csv";
-  link.click();
-  URL.revokeObjectURL(link.href);
-  showToast("CSV exported from live app data.");
 });
 
 document.querySelector("#eventButton").addEventListener("click", () => {
@@ -1052,6 +1409,28 @@ document.querySelector("#vendorGrid").addEventListener("click", async (event) =>
   await refresh();
 });
 
+document.querySelector("#vendorPreviewButton").addEventListener("click", () => {
+  setView("vendors");
+});
+
+document.querySelector("#vendorApplyButton").addEventListener("click", () => {
+  document.querySelector(".vendor-apply-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+document.querySelector("#vendorSignupForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const status = form.querySelector(".form-status");
+  try {
+    await api.create("vendors", Object.fromEntries(formData.entries()));
+    status.textContent = "Application submitted. Akshar Arbol admin will review and approve the listing.";
+    await refresh();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+});
+
 document.querySelector("#payments").addEventListener("click", (event) => {
   const invoiceButton = event.target.closest(".invoice-action");
   if (invoiceButton) {
@@ -1085,7 +1464,16 @@ document.querySelector(".promotion-banner .ghost-button").addEventListener("clic
   showToast(`${promotion.name}: ${promotion.placement} is ${promotion.status}.`);
 });
 
-if (sessionStorage.getItem("yaara-authenticated") === "true") {
+syncSessionTimeoutControls();
+
+if (sessionStorage.getItem(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
   setAuthenticated(true);
-  await refresh();
+  try {
+    roleSelect.value = currentRole();
+    await refresh();
+  } catch {
+    expireSession("Your secure session expired. Please sign in again.");
+  }
+} else {
+  setAuthenticated(false);
 }

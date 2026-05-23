@@ -262,12 +262,54 @@ h2 {
 }
 
 .role-control,
+.session-control,
 .search-field {
   display: grid;
   gap: 5px;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 850;
+}
+
+.session-control {
+  min-width: 116px;
+}
+
+.session-status {
+  min-width: 106px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.session-status.is-warning {
+  border-color: rgba(184, 74, 74, 0.35);
+  color: var(--red);
+  background: rgba(184, 74, 74, 0.08);
+}
+
+.session-warning {
+  position: sticky;
+  top: 89px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px clamp(18px, 4vw, 42px);
+  border-bottom: 1px solid rgba(184, 74, 74, 0.25);
+  background: #fff4f4;
+  color: var(--red);
+}
+
+.session-warning span {
+  flex: 1;
+  color: var(--ink);
+  font-weight: 750;
 }
 
 select,
@@ -422,6 +464,13 @@ main {
   color: var(--nav);
 }
 
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
 .ghost-button {
   border: 1px solid var(--line);
   background: #ffffff;
@@ -439,32 +488,9 @@ main {
   color: #ffffff;
 }
 
-.activity-list,
-.queue-list,
 .platform-form {
   display: grid;
   gap: 12px;
-}
-
-.activity-list article {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.activity-list p {
-  margin: 5px 0 0;
-  color: var(--muted);
-}
-
-.activity-list time {
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 800;
 }
 
 .status-dot {
@@ -484,16 +510,6 @@ main {
 
 .blue {
   background: var(--blue);
-}
-
-.queue-list button {
-  min-height: 48px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fafafa;
-  text-align: left;
-  padding: 0 12px;
-  font-weight: 800;
 }
 
 .platform-form label {
@@ -777,6 +793,197 @@ th {
   box-shadow: 0 1px 2px rgba(18, 52, 59, 0.05);
 }
 
+.upload-engine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.template-link {
+  margin-top: 14px;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.download-status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.download-status.is-saved {
+  color: var(--teal-deep);
+}
+
+.download-status.is-error {
+  color: var(--danger);
+}
+
+.upload-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.upload-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.upload-preview-panel {
+  margin-bottom: 14px;
+}
+
+.empty-preview {
+  display: grid;
+  place-items: center;
+  min-height: 84px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+  padding: 18px;
+}
+
+.upload-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.error-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(184, 74, 74, 0.28);
+  border-radius: 8px;
+  background: rgba(184, 74, 74, 0.08);
+  color: var(--red);
+}
+
+.error-list p {
+  margin: 0;
+}
+
+.vendor-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 24px;
+  align-items: stretch;
+  margin-bottom: 18px;
+  padding: clamp(22px, 4vw, 38px);
+  border-radius: 8px;
+  background: linear-gradient(120deg, #ffffff, var(--aqua));
+  border: 1px solid var(--line);
+}
+
+.vendor-hero h2 {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  max-width: 780px;
+}
+
+.vendor-hero p {
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.vendor-hero img {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.vendor-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.contact-block,
+.benefit-list,
+.procedure-list {
+  display: grid;
+  gap: 10px;
+}
+
+.contact-block span,
+.benefit-list span {
+  color: var(--muted);
+}
+
+.procedure-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.procedure-list li + li {
+  margin-top: 8px;
+}
+
+.benefit-list article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fefe;
+}
+
+.sample-platform {
+  margin-bottom: 18px;
+}
+
+.sample-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.sample-grid article {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.sample-grid img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.sample-grid h3,
+.sample-grid p {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.sample-grid h3 {
+  margin-top: 16px;
+}
+
+.sample-grid p {
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+
+.vendor-apply-panel {
+  max-width: 860px;
+}
+
 .card-body p {
   margin: 10px 0 0;
   color: var(--muted);
@@ -1036,11 +1243,15 @@ th {
   .dashboard-grid,
   .split-grid,
   .school-dashboard-grid,
+  .upload-engine-grid,
+  .vendor-hero,
+  .vendor-info-grid,
   .metrics-grid,
   .card-grid.three,
   .kanban,
   .profile-layout,
-  .school-profile {
+  .school-profile,
+  .sample-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1048,11 +1259,25 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .upload-form {
+    grid-template-columns: 1fr;
+  }
+
   .topbar-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: end;
     width: 100%;
+  }
+
+  .session-status,
+  .session-warning .ghost-button {
+    width: 100%;
+  }
+
+  .session-warning {
+    position: static;
+    display: grid;
   }
 
   .module-nav {

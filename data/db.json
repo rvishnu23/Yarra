@@ -236,6 +236,19 @@
       "paid": false,
       "recording": true,
       "materials": true
+    },
+    {
+      "id": "event-innovation-challenge",
+      "title": "Inter-school Innovation Challenge",
+      "type": "Competition",
+      "format": "In-person",
+      "date": "2026-08-18",
+      "host": "Yaara Student Programs",
+      "capacity": 120,
+      "registered": 64,
+      "paid": false,
+      "recording": false,
+      "materials": true
     }
   ],
   "exchanges": [
@@ -279,6 +292,11 @@
         "video",
         "leadership"
       ],
+      "audience": [
+        "School Admin",
+        "Teacher"
+      ],
+      "minAge": 18,
       "restrictedToEarlyYears": false,
       "comments": 12,
       "saved": 42
@@ -294,6 +312,13 @@
         "edtech",
         "leadership"
       ],
+      "audience": [
+        "School Admin",
+        "Teacher",
+        "Student"
+      ],
+      "minAge": 13,
+      "maxAge": 18,
       "restrictedToEarlyYears": false,
       "comments": 7,
       "saved": 31
@@ -309,6 +334,11 @@
         "curriculum",
         "restricted"
       ],
+      "audience": [
+        "School Admin",
+        "Teacher"
+      ],
+      "minAge": 18,
       "restrictedToEarlyYears": true,
       "comments": 3,
       "saved": 18
