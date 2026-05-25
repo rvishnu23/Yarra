@@ -1,0 +1,39 @@
+{
+  "schools": [
+    {
+      "id": "school-greenfield-public-school-mpio3qt7",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "rkchelli43@gmail.com",
+      "earlyYears": true,
+      "status": "Payment pending",
+      "membershipExpiry": "",
+      "achievements": []
+    }
+  ],
+  "students": [],
+  "teachers": [],
+  "vendors": [],
+  "events": [],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [],
+  "payments": [
+    {
+      "id": "pay-greenfield-public-school-mpio3qt7",
+      "schoolId": "school-greenfield-public-school-mpio3qt7",
+      "type": "Membership",
+      "amount": 10,
+      "status": "Payment link sent",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_Ssttl3uJiQmEwo",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": []
+}

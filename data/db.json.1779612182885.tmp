@@ -1,0 +1,288 @@
+{
+  "schools": [
+    {
+      "id": "school-blocked-school-mpjimva4",
+      "name": "Blocked School",
+      "city": "",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "blocked@gmail.com",
+      "earlyYears": false,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-sboa-jc-mpioikcy",
+      "name": "sboa jc",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "vishnuaravindhr@gmail.com",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpioagta",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "rkchelli43@gmail.com",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    }
+  ],
+  "users": [
+    {
+      "id": "user-teacher-teacher-verify-gmail-com",
+      "email": "teacher.verify@gmail.com",
+      "name": "Teacher Verify",
+      "role": "Teacher",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "teacherId": "teacher-t-verify-001",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T08:29:51.722Z"
+    },
+    {
+      "id": "user-school-admin-blocked-gmail-com",
+      "email": "blocked@gmail.com",
+      "name": "Blocked School Admin",
+      "role": "School Admin",
+      "schoolId": "school-blocked-school-mpjimva4",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T08:28:45.917Z"
+    },
+    {
+      "id": "user-student-ananya-rao-gmail-com",
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "role": "Student",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T08:21:14.547Z"
+    },
+    {
+      "id": "user-admin-gmail-com",
+      "email": "admin@gmail.com",
+      "name": "admin",
+      "role": "Super Admin",
+      "schoolId": null,
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T08:09:19.626Z"
+    },
+    {
+      "id": "user-school-admin-rkchelli43-gmail-com",
+      "email": "rkchelli43@gmail.com",
+      "name": "Greenfield Public School Admin",
+      "role": "School Admin",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T07:39:08.331Z"
+    },
+    {
+      "id": "user-school-admin-vishnuaravindhr-gmail-com",
+      "email": "vishnuaravindhr@gmail.com",
+      "name": "sboa jc Admin",
+      "role": "School Admin",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T07:29:27.660Z"
+    }
+  ],
+  "students": [
+    {
+      "id": "student-aais-2026-001",
+      "studentId": "AAIS-2026-001",
+      "name": "Arjun Rao",
+      "grade": "G8",
+      "section": "B",
+      "campus": "TNG",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "guardianEmail": "ananya.rao@gmail.com",
+      "parent1Name": "Ananya Rao",
+      "parent2Email": "rahul.rao@gmail.com",
+      "parent2Name": "Rahul Rao",
+      "age": 13,
+      "status": "Invited",
+      "access": [
+        "Competitions",
+        "Student exchange",
+        "Age-gated content"
+      ]
+    }
+  ],
+  "teachers": [
+    {
+      "id": "teacher-t-verify-001",
+      "employeeId": "T-VERIFY-001",
+      "name": "Teacher Verify",
+      "email": "teacher.verify@gmail.com",
+      "role": "teacher",
+      "designation": "Math Teacher",
+      "isHrt": false,
+      "campus": "Main",
+      "grades": [
+        "G8"
+      ],
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "status": "Active"
+    }
+  ],
+  "vendors": [],
+  "events": [
+    {
+      "id": "event-paid-inter-test-mpjj58it",
+      "title": "Paid Inter Test",
+      "type": "Competition",
+      "format": "Hybrid",
+      "date": "2026-06-02",
+      "host": "SBOA JC",
+      "capacity": 10,
+      "registered": 0,
+      "paid": true,
+      "recording": false,
+      "materials": false
+    },
+    {
+      "id": "event-intra-test-meet-mpjj551z",
+      "title": "Intra Test Meet",
+      "type": "Workshop",
+      "format": "Virtual",
+      "date": "2026-06-01",
+      "host": "SBOA JC",
+      "capacity": 10,
+      "registered": 0,
+      "paid": false,
+      "recording": false,
+      "materials": false
+    },
+    {
+      "id": "event-ai-seminar-mpjgu2g1",
+      "title": "AI seminar",
+      "type": "Workshop",
+      "format": "Virtual",
+      "date": "2026-06-24",
+      "host": "SBOA JC",
+      "capacity": 20,
+      "registered": 0,
+      "paid": true,
+      "recording": false,
+      "materials": false
+    }
+  ],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [
+    {
+      "id": "note-blocked-school-admin-invite-superadmin-mpjimva5",
+      "audience": "Super Admin",
+      "title": "School Admin invite prepared for Blocked School: blocked@gmail.com.",
+      "unread": true,
+      "createdAt": "2026-05-24T08:28:45.917Z"
+    },
+    {
+      "id": "note-blocked-school-admin-invite-schooladmin-mpjimva5",
+      "audience": "School Admin",
+      "title": "Your Yarra access is ready for Blocked School. Sign in with blocked@gmail.com.",
+      "unread": true,
+      "createdAt": "2026-05-24T08:28:45.917Z"
+    },
+    {
+      "id": "note-sboa-jc-payment-superadmin-mpiorrya",
+      "audience": "Super Admin",
+      "title": "Payment received for sboa jc. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:32:46.402Z"
+    },
+    {
+      "id": "note-sboa-jc-payment-schooladmin-mpiorrya",
+      "audience": "School Admin",
+      "title": "Payment received for sboa jc. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:32:46.402Z"
+    },
+    {
+      "id": "note-greenfield-payment-superadmin",
+      "audience": "Super Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    },
+    {
+      "id": "note-greenfield-payment-schooladmin",
+      "audience": "School Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay-blocked-school-mpjimva5",
+      "schoolId": "school-blocked-school-mpjimva4",
+      "type": "Membership",
+      "amount": 25000,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1003",
+      "method": "Razorpay",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "",
+      "createdAt": "2026-05-24"
+    },
+    {
+      "id": "pay-sboa-jc-mpioikcy",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "type": "Membership",
+      "amount": 100,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1002",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_Ssu5vqrQzqRzd9",
+      "createdAt": "2026-05-23"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpioagta",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay",
+      "gatewayPaymentId": "Ssu072AfCLYb4C",
+      "gatewayOrderId": "order_SstzHQBoKoMF8E",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": [
+    {
+      "uploadType": "staff_roster",
+      "fileName": "api-staff-check.xlsx",
+      "recordCount": 1,
+      "errorCount": 0,
+      "status": "COMPLETED",
+      "createdAt": "24/05/26, 1:59:51 pm"
+    },
+    {
+      "uploadType": "student_roster",
+      "fileName": "student_roster_template.xlsx",
+      "recordCount": 1,
+      "errorCount": 0,
+      "status": "COMPLETED",
+      "createdAt": "24/05/26, 1:10:33 pm"
+    }
+  ]
+}

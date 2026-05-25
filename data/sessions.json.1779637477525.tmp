@@ -1,0 +1,20 @@
+[
+  {
+    "hashedToken": "da399e5c139bb9f0bdd8f7edbdfa56a5e526b6a83451262ddf496e5b38b8069a",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "timeoutMinutes": 20,
+      "createdAt": "2026-05-24T15:44:33.033Z",
+      "lastSeenAt": "2026-05-24T15:44:37.525Z",
+      "expiresAt": "2026-05-24T16:04:37.525Z"
+    }
+  }
+]

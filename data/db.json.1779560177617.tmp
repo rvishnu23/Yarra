@@ -1,0 +1,39 @@
+{
+  "schools": [
+    {
+      "id": "school-debug-school-mpio6l01",
+      "name": "Debug School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "test@example.com",
+      "earlyYears": true,
+      "status": "Payment pending",
+      "membershipExpiry": "",
+      "achievements": []
+    }
+  ],
+  "students": [],
+  "teachers": [],
+  "vendors": [],
+  "events": [],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [],
+  "payments": [
+    {
+      "id": "pay-debug-school-mpio6l01",
+      "schoolId": "school-debug-school-mpio6l01",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Payment link sent",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_debug",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": []
+}

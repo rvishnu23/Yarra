@@ -1,0 +1,39 @@
+{
+  "schools": [
+    {
+      "id": "school-svsss-mpio2ecq",
+      "name": "svsss",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "rkchelli43@gmail.com",
+      "earlyYears": true,
+      "status": "Payment pending",
+      "membershipExpiry": "",
+      "achievements": []
+    }
+  ],
+  "students": [],
+  "teachers": [],
+  "vendors": [],
+  "events": [],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [],
+  "payments": [
+    {
+      "id": "pay-svsss-mpio2ecq",
+      "schoolId": "school-svsss-mpio2ecq",
+      "type": "Membership",
+      "amount": 10000,
+      "status": "Payment link sent",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_SstseVqNK4eI4V",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": []
+}

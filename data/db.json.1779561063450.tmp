@@ -1,0 +1,102 @@
+{
+  "schools": [
+    {
+      "id": "school-activation-test-school-mpiopkii",
+      "name": "Activation Test School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "test@example.com",
+      "earlyYears": true,
+      "status": "Payment pending",
+      "membershipExpiry": "",
+      "achievements": []
+    },
+    {
+      "id": "school-sboa-jc-mpioikcy",
+      "name": "sboa jc",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "vishnuaravindhr@gmail.com",
+      "earlyYears": true,
+      "status": "Payment pending",
+      "membershipExpiry": "",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpioagta",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "rkchelli43@gmail.com",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    }
+  ],
+  "students": [],
+  "teachers": [],
+  "vendors": [],
+  "events": [],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [
+    {
+      "id": "note-greenfield-payment-superadmin",
+      "audience": "Super Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": true,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    },
+    {
+      "id": "note-greenfield-payment-schooladmin",
+      "audience": "School Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": true,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay-activation-test-school-mpiopkii",
+      "schoolId": "school-activation-test-school-mpiopkii",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Payment link sent",
+      "invoice": "YAARA-INV-1003",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "",
+      "createdAt": "2026-05-23"
+    },
+    {
+      "id": "pay-sboa-jc-mpioikcy",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "type": "Membership",
+      "amount": 100,
+      "status": "Payment link sent",
+      "invoice": "YAARA-INV-1002",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_Ssu5vqrQzqRzd9",
+      "createdAt": "2026-05-23"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpioagta",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay",
+      "gatewayPaymentId": "Ssu072AfCLYb4C",
+      "gatewayOrderId": "order_SstzHQBoKoMF8E",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": []
+}

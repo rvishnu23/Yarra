@@ -1,0 +1,162 @@
+[
+  {
+    "hashedToken": "f8089e00dd1245cc0a5cbae505835f0ef3271b82ea57e7f90fbf97336aa33734",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T15:52:59.079Z",
+      "lastSeenAt": "2026-05-24T15:53:03.583Z"
+    }
+  },
+  {
+    "hashedToken": "b4a40d79341ff8915f09e7f0f24c04867c080309234ee90838d22b2a2d402c9e",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T15:55:50.291Z",
+      "lastSeenAt": "2026-05-24T15:56:08.057Z"
+    }
+  },
+  {
+    "hashedToken": "afe793d3a6e26055bc6b2b51fa383003c362ae742e1883487ba09d7bc991098e",
+    "session": {
+      "email": "vishnuaravindhr@gmail.com",
+      "name": "sboa jc Admin",
+      "provider": "gmail-dev",
+      "role": "School Admin",
+      "userId": "user-school-admin-vishnuaravindhr-gmail-com",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T15:57:08.466Z",
+      "lastSeenAt": "2026-05-24T15:57:12.964Z"
+    }
+  },
+  {
+    "hashedToken": "6a3da915973d34c44bd51ad8fe254a42dafa6b2c8c7257c2db772b42ef3fcc44",
+    "session": {
+      "email": "teacher.verify@gmail.com",
+      "name": "Teacher Verify",
+      "provider": "gmail-dev",
+      "role": "Teacher",
+      "userId": "user-teacher-teacher-verify-gmail-com",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "studentId": null,
+      "teacherId": "teacher-t-verify-001",
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:11:06.983Z",
+      "lastSeenAt": "2026-05-24T16:11:11.510Z"
+    }
+  },
+  {
+    "hashedToken": "fb8b6140cfa5b03cbf5c32186e6718ff50062cb2630093ba079cc6118067dc66",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:11:11.883Z",
+      "lastSeenAt": "2026-05-24T16:11:16.390Z"
+    }
+  },
+  {
+    "hashedToken": "0ae1ff2380d50d09982b6cb8a4fa6de86a985855a853583b438b42265c68efe5",
+    "session": {
+      "email": "teacher.verify@gmail.com",
+      "name": "Teacher Verify",
+      "provider": "gmail-dev",
+      "role": "Teacher",
+      "userId": "user-teacher-teacher-verify-gmail-com",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "studentId": null,
+      "teacherId": "teacher-t-verify-001",
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:13:56.214Z",
+      "lastSeenAt": "2026-05-24T16:14:00.725Z"
+    }
+  },
+  {
+    "hashedToken": "ad3acd5ff4df80487cb3833ae9b1a17663bed611f3c783d12a76466daa43d71f",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:14:05.213Z",
+      "lastSeenAt": "2026-05-24T16:14:09.691Z"
+    }
+  },
+  {
+    "hashedToken": "aaf5e105241ea03971d4071cd238d1b6fc73bc6aa25de12b0a100e85cf6e4e58",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:16:13.039Z",
+      "lastSeenAt": "2026-05-24T16:16:17.518Z"
+    }
+  },
+  {
+    "hashedToken": "64331e60089fdbae883482dba405ec1dd57e620add505f1290ac3e97a01dfa43",
+    "session": {
+      "email": "admin@gmail.com",
+      "name": "admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-admin-gmail-com",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:24:38.026Z",
+      "lastSeenAt": "2026-05-24T16:24:42.502Z"
+    }
+  },
+  {
+    "hashedToken": "af42eff346024c631c8367699824786ce8d969598f2ad3426eba11767d6a4f3d",
+    "session": {
+      "email": "ananya.rao@gmail.com",
+      "name": "Arjun Rao",
+      "provider": "gmail-dev",
+      "role": "Student",
+      "userId": "user-student-ananya-rao-gmail-com",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "studentId": "student-aais-2026-001",
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-24T16:24:46.975Z",
+      "lastSeenAt": "2026-05-24T16:24:46.975Z"
+    }
+  }
+]

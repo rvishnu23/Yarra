@@ -7,10 +7,13 @@ import { existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDir = join(root, "data");
 const dbPath = join(dataDir, "db.json");
 const auditLogPath = join(dataDir, "audit.log");
+const sessionStorePath = join(dataDir, "sessions.json");
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
 const databaseUrl = process.env.DATABASE_URL || "";
@@ -47,7 +50,7 @@ const razorpayKeyId = process.env.RAZORPAY_KEY_ID || "";
 const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET || "";
 const upiPayeeId = process.env.UPI_PAYEE_ID || "vishnuaravindhr-1@okicici";
 const upiPayeeName = process.env.UPI_PAYEE_NAME || "Yarra Education Group";
-const defaultSessionTimeoutMinutes = clampNumber(process.env.SESSION_TIMEOUT_MINUTES || 30, 1, 240);
+const defaultSessionTimeoutMinutes = 20;
 const sessionTimeoutOptions = [1, 5, 15, 30, 60, 120];
 const maxRequestBytes = clampNumber(process.env.MAX_REQUEST_BYTES || 10 * 1024 * 1024, 1024, 50 * 1024 * 1024);
 const authRateLimitWindowMs = clampNumber(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 60 * 1000, 1000, 60 * 60 * 1000);
@@ -324,6 +327,7 @@ const seed = {
 
 const emptyState = {
   schools: [],
+  users: [],
   students: [],
   teachers: [],
   vendors: [],
@@ -333,6 +337,7 @@ const emptyState = {
   promotions: [],
   notifications: [],
   payments: [],
+  eventRegistrations: [],
   uploadHistory: []
 };
 
@@ -349,13 +354,18 @@ async function ensureDb() {
   if (!existsSync(auditLogPath)) {
     await writeFile(auditLogPath, "", "utf8");
   }
+  if (!existsSync(sessionStorePath)) {
+    await writeFile(sessionStorePath, "[]\n", "utf8");
+  }
+  await loadPersistedSessions();
 }
 
 async function readJson(path) {
   if (usePostgres && path === dbPath) {
     return readStateFromPostgres();
   }
-  return JSON.parse(await readFile(path, "utf8"));
+  const state = JSON.parse(await readFile(path, "utf8"));
+  return { ...emptyState, ...state };
 }
 
 async function writeJson(path, value) {
@@ -364,8 +374,47 @@ async function writeJson(path, value) {
     return;
   }
   const tempPath = `${path}.${Date.now()}.tmp`;
-  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await rename(tempPath, path);
+  const contents = `${JSON.stringify(value, null, 2)}\n`;
+  await writeFile(tempPath, contents, "utf8");
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rename(tempPath, path);
+      return;
+    } catch (error) {
+      if (!["EPERM", "EACCES", "EBUSY"].includes(error.code)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(80 * (attempt + 1));
+    }
+  }
+  try {
+    await writeFile(path, contents, "utf8");
+  } catch {
+    throw lastError;
+  }
+}
+
+async function loadPersistedSessions() {
+  try {
+    const records = JSON.parse(await readFile(sessionStorePath, "utf8"));
+    sessions.clear();
+    for (const record of Array.isArray(records) ? records : []) {
+      if (!record?.hashedToken || !record?.session) continue;
+      sessions.set(record.hashedToken, record.session);
+    }
+  } catch {
+    sessions.clear();
+  }
+}
+
+async function persistSessions() {
+  const records = [];
+  for (const [hashedToken, session] of sessions.entries()) {
+    records.push({ hashedToken, session });
+  }
+  await writeJson(sessionStorePath, records);
 }
 
 async function pgPool() {
@@ -728,6 +777,228 @@ async function resolveDbUser(email, requestedRole, requestedSchoolId, requestedV
   return (await queryDb("SELECT * FROM users WHERE email = $1 LIMIT 1", [email])).rows[0];
 }
 
+function createLocalSchoolAdminUser(school, email, status = "Invited") {
+  const safeEmail = sanitizeEmail(email || school?.contact || "");
+  return {
+    id: `user-school-admin-${slug(safeEmail || school?.id || school?.name)}`,
+    email: safeEmail,
+    name: `${school?.name || "School"} Admin`,
+    role: "School Admin",
+    schoolId: school?.id || null,
+    vendorId: null,
+    status,
+    invitedAt: new Date().toISOString()
+  };
+}
+
+function upsertLocalSchoolAdminUser(state, school, status = "Invited") {
+  state.users ||= [];
+  const email = sanitizeEmail(school.contact || "");
+  if (!email) return null;
+  const existing = state.users.find((user) => sanitizeEmail(user.email) === email);
+  if (existing) {
+    existing.role = "School Admin";
+    existing.schoolId = school.id;
+    existing.name ||= `${school.name} Admin`;
+    existing.status = status;
+    existing.invitedAt ||= new Date().toISOString();
+    return existing;
+  }
+  const user = createLocalSchoolAdminUser(school, email, status);
+  state.users.unshift(user);
+  return user;
+}
+
+function upsertLocalStudentUser(state, student, email, status = "Invited") {
+  state.users ||= [];
+  const safeEmail = sanitizeEmail(email || student.email || student.studentEmail || student.guardianEmail || "");
+  if (!safeEmail) return null;
+  const existing = state.users.find((user) => sanitizeEmail(user.email) === safeEmail);
+  if (existing) {
+    existing.role = "Student";
+    existing.schoolId = student.schoolId;
+    existing.studentId = student.id;
+    existing.name ||= student.name;
+    existing.status = status;
+    existing.invitedAt ||= new Date().toISOString();
+    return existing;
+  }
+  const user = {
+    id: `user-student-${slug(safeEmail || student.id || student.name)}`,
+    email: safeEmail,
+    name: student.name,
+    role: "Student",
+    schoolId: student.schoolId,
+    studentId: student.id,
+    vendorId: null,
+    status,
+    invitedAt: new Date().toISOString()
+  };
+  state.users.unshift(user);
+  return user;
+}
+
+function upsertLocalTeacherUser(state, teacher, email, status = "Active") {
+  state.users ||= [];
+  const safeEmail = sanitizeEmail(email || teacher.email || "");
+  if (!safeEmail) return null;
+  const existing = state.users.find((user) => sanitizeEmail(user.email) === safeEmail);
+  if (existing) {
+    existing.role = "Teacher";
+    existing.schoolId = teacher.schoolId;
+    existing.teacherId = teacher.id;
+    existing.name ||= teacher.name;
+    existing.status = status;
+    existing.invitedAt ||= new Date().toISOString();
+    return existing;
+  }
+  const user = {
+    id: `user-teacher-${slug(safeEmail || teacher.id || teacher.name)}`,
+    email: safeEmail,
+    name: teacher.name,
+    role: "Teacher",
+    schoolId: teacher.schoolId,
+    teacherId: teacher.id,
+    vendorId: null,
+    status,
+    invitedAt: new Date().toISOString()
+  };
+  state.users.unshift(user);
+  return user;
+}
+
+function resolveLocalUser(state, email, requestedRole, requestedSchoolId, requestedVendorId) {
+  state.users ||= [];
+  const existing = state.users.find((user) => sanitizeEmail(user.email) === email);
+  if (existing) {
+    if (["School Admin", "Teacher", "Student"].includes(existing.role)) {
+      const school = state.schools.find((item) => item.id === existing.schoolId);
+      if (!school || school.status !== "Active") return null;
+    }
+    return {
+      id: existing.id,
+      email: existing.email,
+      display_name: existing.name || existing.displayName || email.split("@")[0],
+      role: existing.role,
+      school_id: existing.schoolId || null,
+      student_id: existing.studentId || (existing.role === "Student" ? existing.id : null),
+      teacher_id: existing.teacherId || null,
+      vendor_id: existing.vendorId || null,
+      status: existing.status || "Active"
+    };
+  }
+
+  const role = normalizeRole(requestedRole || "School Admin");
+  if (role === "Super Admin") {
+    const user = {
+      id: `user-${slug(email)}`,
+      email,
+      name: email.split("@")[0],
+      role: "Super Admin",
+      schoolId: null,
+      vendorId: null,
+      status: "Active",
+      invitedAt: new Date().toISOString()
+    };
+    state.users.unshift(user);
+    return {
+      id: user.id,
+      email: user.email,
+      display_name: user.name,
+      role: user.role,
+      school_id: null,
+      student_id: null,
+      teacher_id: null,
+      vendor_id: null,
+      status: user.status
+    };
+  }
+
+  const matchedSchool = state.schools.find((school) => sanitizeEmail(school.contact) === email);
+  if (role === "School Admin" && matchedSchool) {
+    const user = upsertLocalSchoolAdminUser(state, matchedSchool, matchedSchool.status === "Active" ? "Active" : "Invited");
+    return {
+      id: user.id,
+      email: user.email,
+      display_name: user.name,
+      role: user.role,
+      school_id: user.schoolId,
+      student_id: null,
+      teacher_id: null,
+      vendor_id: null,
+      status: user.status
+    };
+  }
+
+  if (role === "Vendor") {
+    const vendor = state.vendors.find((item) => sanitizeEmail(item.contact) === email) || state.vendors[0] || null;
+    const user = {
+      id: `user-vendor-${slug(email)}`,
+      email,
+      name: email.split("@")[0],
+      role: "Vendor",
+      schoolId: null,
+      vendorId: vendor?.id || null,
+      status: "Active",
+      invitedAt: new Date().toISOString()
+    };
+    state.users.unshift(user);
+    return {
+      id: user.id,
+      email: user.email,
+      display_name: user.name,
+      role: user.role,
+      school_id: null,
+      student_id: null,
+      teacher_id: null,
+      vendor_id: user.vendorId,
+      status: user.status
+    };
+  }
+
+  if (role === "Student") {
+    const student = state.students.find((item) => sanitizeEmail(item.email || item.studentEmail || item.guardianEmail) === email);
+    if (student) {
+      const school = state.schools.find((item) => item.id === student.schoolId);
+      if (school && school.status !== "Active") return null;
+      const user = upsertLocalStudentUser(state, student, email, "Active");
+      return {
+        id: user.id,
+        email: user.email,
+        display_name: user.name,
+        role: user.role,
+        school_id: user.schoolId,
+        student_id: user.studentId,
+        teacher_id: null,
+        vendor_id: null,
+        status: user.status
+      };
+    }
+  }
+
+  if (role === "Teacher") {
+    const teacher = state.teachers.find((item) => sanitizeEmail(item.email) === email);
+    if (teacher) {
+      const school = state.schools.find((item) => item.id === teacher.schoolId);
+      if (!school || school.status !== "Active") return null;
+      const user = upsertLocalTeacherUser(state, teacher, email, "Active");
+      return {
+        id: user.id,
+        email: user.email,
+        display_name: user.name,
+        role: user.role,
+        school_id: user.schoolId,
+        student_id: null,
+        teacher_id: user.teacherId,
+        vendor_id: null,
+        status: user.status
+      };
+    }
+  }
+
+  return null;
+}
+
 async function s3Client() {
   if (!s3Bucket) return null;
   if (!s3ClientPromise) {
@@ -802,9 +1073,6 @@ function enforceRateLimit(req, res, scope, max, windowMs) {
 
 function cleanupRuntimeStores() {
   const now = Date.now();
-  for (const [key, session] of sessions.entries()) {
-    if (Date.parse(session.expiresAt) <= now) sessions.delete(key);
-  }
   for (const [key, window] of rateLimits.entries()) {
     if (window.resetAt <= now) rateLimits.delete(key);
   }
@@ -1169,21 +1437,21 @@ function publicSession(token, session) {
     name: session.name,
     provider: session.provider,
     role: session.role,
-    timeoutMinutes: session.timeoutMinutes,
+    schoolId: session.schoolId,
+    studentId: session.studentId,
+    teacherId: session.teacherId,
+    vendorId: session.vendorId,
     createdAt: session.createdAt,
-    expiresAt: session.expiresAt,
     lastSeenAt: session.lastSeenAt
   };
 }
 
 function renewSession(session, timeoutMinutes = session.timeoutMinutes) {
   const now = Date.now();
-  session.timeoutMinutes = normalizeTimeoutMinutes(timeoutMinutes);
   session.lastSeenAt = new Date(now).toISOString();
-  session.expiresAt = new Date(now + session.timeoutMinutes * 60 * 1000).toISOString();
 }
 
-function createSession({ email, name, provider, role, timeoutMinutes, userId, schoolId, vendorId }) {
+function createSession({ email, name, provider, role, timeoutMinutes, userId, schoolId, studentId, teacherId, vendorId }) {
   const token = randomBytes(32).toString("base64url");
   const now = new Date().toISOString();
   const session = {
@@ -1193,14 +1461,16 @@ function createSession({ email, name, provider, role, timeoutMinutes, userId, sc
     role: normalizeRole(role),
     userId: userId || null,
     schoolId: schoolId || "school-greenfield",
+    studentId: studentId || null,
+    teacherId: teacherId || null,
     vendorId: vendorId || "vendor-learngrid",
-    timeoutMinutes: normalizeTimeoutMinutes(timeoutMinutes),
     createdAt: now,
-    lastSeenAt: now,
-    expiresAt: now
+    lastSeenAt: now
   };
-  renewSession(session, session.timeoutMinutes);
-  sessions.set(hashToken(token), session);
+  renewSession(session);
+  const hashedToken = hashToken(token);
+  sessions.set(hashedToken, session);
+  persistSessions().catch(() => {});
   return { token, session };
 }
 
@@ -1212,13 +1482,9 @@ function getSessionFromRequest(req, { renew = true } = {}) {
   const session = sessions.get(hashedToken);
   if (!session) return null;
 
-  if (Date.parse(session.expiresAt) <= Date.now()) {
-    sessions.delete(hashedToken);
-    return null;
-  }
-
   if (renew) {
     renewSession(session);
+    persistSessions().catch(() => {});
   } else {
     session.lastSeenAt = new Date().toISOString();
   }
@@ -1229,11 +1495,9 @@ function getSessionFromRequest(req, { renew = true } = {}) {
 function requireSession(req, res, options) {
   const sessionContext = getSessionFromRequest(req, options);
   if (!sessionContext) {
-    sendJson(res, 401, { error: "Your secure session has expired. Please sign in again." });
+    sendJson(res, 401, { error: "Please sign in again." });
     return null;
   }
-  res.setHeader("X-Session-Expires-At", sessionContext.session.expiresAt);
-  res.setHeader("X-Session-Timeout-Minutes", String(sessionContext.session.timeoutMinutes));
   return sessionContext;
 }
 
@@ -1291,11 +1555,44 @@ function metrics(db) {
   };
 }
 
+function visibleEventsForUser(db, user) {
+  if (user.role === "Super Admin") return db.events || [];
+  if (["School Admin", "Teacher"].includes(user.role)) {
+    return (db.events || []).filter((event) =>
+      event.scope === "Inter school" || !event.scope || event.schoolId === user.schoolId
+    );
+  }
+  if (user.role === "Student") {
+    return (db.events || []).filter((event) =>
+      ["Competition", "Webinar", "Workshop", "Leadership Conclave"].includes(event.type) &&
+      (event.scope === "Inter school" || !event.scope || event.schoolId === user.schoolId)
+    );
+  }
+  return [];
+}
+
+function metricsForUser(db, user) {
+  const base = metrics(db);
+  if (user.role === "Super Admin") return base;
+  const schoolIds = user.schoolId ? [user.schoolId] : [];
+  const schoolStudents = (db.students || []).filter((student) => schoolIds.includes(student.schoolId)).length;
+  const schoolEvents = visibleEventsForUser(db, user).length;
+  return {
+    ...base,
+    activeSchools: schoolIds.length ? db.schools.filter((school) => schoolIds.includes(school.id) && school.status === "Active").length : 0,
+    vendors: user.role === "Vendor" ? base.vendors : 0,
+    students: ["School Admin", "Teacher", "Student"].includes(user.role) ? schoolStudents : 0,
+    events: schoolEvents,
+    newSignups: 0,
+    totalRevenue: 0
+  };
+}
+
 const roleViews = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "library", "profiles"],
-  Student: ["dashboard", "events", "exchange", "library"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "library", "vendorSignup", "vendors", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "library", "vendors", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
+  Student: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
@@ -1310,7 +1607,8 @@ function userFromRequest(req, url, session) {
     email: session?.email || null,
     role,
     schoolId: session?.schoolId || req.headers["x-school-id"] || "school-greenfield",
-    studentId: session?.studentId || req.headers["x-student-id"] || "student-anaya",
+    studentId: session?.studentId || req.headers["x-student-id"] || null,
+    teacherId: session?.teacherId || req.headers["x-teacher-id"] || null,
     vendorId: session?.vendorId || req.headers["x-vendor-id"] || "vendor-learngrid"
   };
 }
@@ -1324,16 +1622,29 @@ function canWrite(user, resource, action = "") {
   if (resource === "students") return user.role === "School Admin";
   if (resource === "uploads") return ["Super Admin", "School Admin"].includes(user.role);
   if (resource === "payments") return user.role === "School Admin";
-  if (resource === "schools") return user.role === "School Admin";
+  if (resource === "schools") return false;
   if (resource === "exchanges") return ["School Admin", "Teacher"].includes(user.role);
-  if (resource === "events") return user.role === "School Admin";
+  if (resource === "events") return ["School Admin", "Teacher"].includes(user.role);
+  if (resource === "event-registrations") return ["School Admin", "Teacher", "Student"].includes(user.role);
+  if (resource === "leadership-threads") return ["Super Admin", "School Admin"].includes(user.role);
+  if (resource === "vendor-products") return user.role === "Vendor";
+  if (resource === "market-orders" && action === "advance") return user.role === "Vendor";
+  if (resource === "market-orders") return ["School Admin", "Teacher", "Student"].includes(user.role);
+  if (resource === "content" && ["like", "save", "comment"].includes(action)) return ["Super Admin", "School Admin", "Teacher", "Student"].includes(user.role);
+  if (resource === "content") return ["Super Admin", "School Admin", "Teacher"].includes(user.role);
   if (resource === "vendors" && action === "approve") return false;
   if (resource === "vendors") return user.role === "Vendor";
   return false;
 }
 
 function filteredState(db, user) {
-  const full = { ...db, metrics: metrics(db), permissions: { role: user.role, views: roleViews[user.role] } };
+  const full = { ...db, metrics: metricsForUser(db, user), permissions: { role: user.role, views: roleViews[user.role] } };
+  const studentTeacherSchool = (school) => {
+    if (!school) return school;
+    const safeSchool = { ...school };
+    delete safeSchool.membershipExpiry;
+    return safeSchool;
+  };
 
   if (user.role === "Vendor") {
     const vendor = db.vendors.find((item) => item.id === user.vendorId) || db.vendors[0];
@@ -1341,6 +1652,8 @@ function filteredState(db, user) {
       schools: [],
       students: [],
       vendors: vendor ? [vendor] : [],
+      vendorProducts: (db.vendorProducts || []).filter((product) => product.vendorId === vendor?.id),
+      marketOrders: (db.marketOrders || []).filter((order) => (order.items || []).some((item) => item.vendorId === vendor?.id)),
       events: [],
       exchanges: [],
       content: [],
@@ -1361,7 +1674,7 @@ function filteredState(db, user) {
   }
 
   if (user.role === "Student") {
-    const student = db.students.find((item) => item.id === user.studentId) || db.students[0];
+    const student = db.students.find((item) => item.id === user.studentId);
     const age = Number(student?.age || 0);
     const allowedContent = db.content.filter((item) => {
       const audience = item.audience || ["School Admin", "Teacher", "Student"];
@@ -1371,13 +1684,17 @@ function filteredState(db, user) {
     });
     return {
       ...full,
-      schools: db.schools.filter((school) => school.id === student?.schoolId),
+      schools: db.schools.filter((school) => school.id === student?.schoolId).map(studentTeacherSchool),
       students: student ? [student] : [],
-      vendors: [],
+      vendors: db.vendors.filter((vendor) => vendor.status === "Approved"),
+      vendorProducts: (db.vendorProducts || []).filter((product) => product.status !== "Inactive"),
+      marketOrders: (db.marketOrders || []).filter((order) => order.buyerId === student?.id || order.buyerEmail === user.email),
       payments: [],
       promotions: [],
+      notifications: db.notifications.filter((item) => ["Student", "All"].includes(item.audience)),
       content: allowedContent,
-      events: db.events.filter((event) => ["Competition", "Webinar"].includes(event.type)),
+      events: visibleEventsForUser(db, { ...user, schoolId: student?.schoolId }),
+      eventRegistrations: (db.eventRegistrations || []).filter((registration) => registration.studentId === student?.id),
       exchanges: db.exchanges.filter((exchange) => exchange.type === "Student"),
       metrics: {
         activeSchools: 1,
@@ -1392,25 +1709,42 @@ function filteredState(db, user) {
   }
 
   if (user.role === "Teacher") {
+    const school = db.schools.find((item) => item.id === user.schoolId);
+    const teacher = db.teachers.find((item) => item.id === user.teacherId || sanitizeEmail(item.email) === sanitizeEmail(user.email));
     return {
       ...full,
-      students: [],
-      vendors: [],
+      schools: school ? [studentTeacherSchool(school)] : [],
+      teachers: teacher ? [teacher] : [],
+      students: db.students.filter((student) => student.schoolId === user.schoolId),
+      vendors: db.vendors.filter((vendor) => vendor.status === "Approved"),
+      vendorProducts: (db.vendorProducts || []).filter((product) => product.status !== "Inactive"),
+      marketOrders: (db.marketOrders || []).filter((order) => order.buyerEmail === user.email || order.schoolId === user.schoolId),
       payments: [],
       promotions: [],
+      events: visibleEventsForUser(db, user),
+      eventRegistrations: (db.eventRegistrations || []).filter((registration) => {
+        const event = db.events.find((item) => item.id === registration.eventId);
+        return event?.schoolId === user.schoolId;
+      }),
+      exchanges: db.exchanges.filter((exchange) => !exchange.schoolId || exchange.schoolId === user.schoolId),
       content: db.content.filter((item) => (item.audience || ["School Admin", "Teacher"]).includes("Teacher"))
     };
   }
 
   if (user.role === "School Admin") {
-    const visibleSchoolIds = db.schools
-      .filter((school) => school.id === user.schoolId || ["Active", "Payment pending"].includes(school.status))
-      .map((school) => school.id);
+    const visibleSchoolIds = user.schoolId ? [user.schoolId] : [];
     return {
       ...full,
       schools: db.schools.filter((school) => visibleSchoolIds.includes(school.id)),
       students: db.students.filter((student) => student.schoolId === user.schoolId),
-      payments: db.payments.filter((payment) => visibleSchoolIds.includes(payment.schoolId))
+      payments: db.payments.filter((payment) => visibleSchoolIds.includes(payment.schoolId)),
+      vendorProducts: (db.vendorProducts || []).filter((product) => product.status !== "Inactive"),
+      marketOrders: (db.marketOrders || []).filter((order) => order.schoolId === user.schoolId),
+      events: visibleEventsForUser(db, user),
+      eventRegistrations: (db.eventRegistrations || []).filter((registration) => {
+        const event = db.events.find((item) => item.id === registration.eventId);
+        return event?.schoolId === user.schoolId || event?.scope === "Inter school";
+      })
     };
   }
 
@@ -1434,10 +1768,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && resource === "auth" && id === "session-config") {
     sendJson(res, 200, {
-      defaultTimeoutMinutes: defaultSessionTimeoutMinutes,
-      timeoutOptions: sessionTimeoutOptions,
-      minTimeoutMinutes: 1,
-      maxTimeoutMinutes: 240
+      enabled: false
     });
     return;
   }
@@ -1445,16 +1776,20 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && resource === "auth" && id === "gmail") {
     const body = await readBody(req);
     const googleProfile = body.credential || body.idToken ? await verifyGoogleCredential(body.credential || body.idToken) : null;
-    const email = googleProfile?.email || String(body.email || "").trim().toLowerCase();
-    if (!email.endsWith("@gmail.com")) {
-      sendJson(res, 400, { error: "Please use a Gmail account." });
-      return;
-    }
+    const email = googleProfile?.email || validateEmailField(body.email, "login email");
     if (googleClientId && !googleProfile) {
       sendJson(res, 401, { error: "Google OAuth credential is required." });
       return;
     }
-    const dbUser = await resolveDbUser(email, body.role, body.schoolId, body.vendorId);
+    const dbUser = usePostgres
+      ? await resolveDbUser(email, body.role, body.schoolId, body.vendorId)
+      : resolveLocalUser(db, email, body.role, body.schoolId, body.vendorId);
+    if (!dbUser) {
+      sendJson(res, 403, {
+        error: "No Yarra invite was found for this Gmail account. Ask the Super Admin to onboard your school and use the same school admin email."
+      });
+      return;
+    }
     const name = googleProfile?.name || dbUser?.display_name || email.split("@")[0].replace(/[._-]+/g, " ");
     const { token, session } = createSession({
       email,
@@ -1464,14 +1799,21 @@ async function handleApi(req, res, url) {
       timeoutMinutes: body.timeoutMinutes,
       userId: dbUser?.id || null,
       schoolId: dbUser?.school_id || body.schoolId,
+      studentId: dbUser?.student_id || (dbUser?.role === "Student" ? dbUser?.id : body.studentId),
+      teacherId: dbUser?.teacher_id || body.teacherId,
       vendorId: dbUser?.vendor_id || body.vendorId
     });
-    await audit("auth.login", req, session, { email, role: session.role, timeoutMinutes: session.timeoutMinutes });
+    await audit("auth.login", req, session, { email, role: session.role });
+    if (!usePostgres) await writeJson(dbPath, db);
     sendJson(res, 200, {
       email,
       name,
       provider: "gmail",
       role: session.role,
+      schoolId: session.schoolId,
+      studentId: session.studentId,
+      teacherId: session.teacherId,
+      vendorId: session.vendorId,
       session: publicSession(token, session)
     });
     return;
@@ -1480,10 +1822,8 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && resource === "auth" && id === "extend") {
     const sessionContext = requireSession(req, res, { renew: false });
     if (!sessionContext) return;
-    const body = await readBody(req);
-    renewSession(sessionContext.session, body.timeoutMinutes);
-    res.setHeader("X-Session-Expires-At", sessionContext.session.expiresAt);
-    res.setHeader("X-Session-Timeout-Minutes", String(sessionContext.session.timeoutMinutes));
+    renewSession(sessionContext.session);
+    await persistSessions();
     sendJson(res, 200, { session: publicSession(sessionContext.token, sessionContext.session) });
     return;
   }
@@ -1492,15 +1832,23 @@ async function handleApi(req, res, url) {
     const sessionContext = requireSession(req, res, { renew: false });
     if (!sessionContext) return;
     const body = await readBody(req);
-    sessionContext.session.role = normalizeRole(body.role);
-    renewSession(sessionContext.session, body.timeoutMinutes);
-    res.setHeader("X-Session-Expires-At", sessionContext.session.expiresAt);
-    res.setHeader("X-Session-Timeout-Minutes", String(sessionContext.session.timeoutMinutes));
+    const nextRole = normalizeRole(body.role);
+    if (sessionContext.session.role !== "Super Admin" && nextRole !== sessionContext.session.role) {
+      sendJson(res, 403, { error: "Only Super Admin can switch platform roles." });
+      return;
+    }
+    sessionContext.session.role = nextRole;
+    renewSession(sessionContext.session);
+    await persistSessions();
     sendJson(res, 200, {
       email: sessionContext.session.email,
       name: sessionContext.session.name,
       provider: sessionContext.session.provider,
       role: sessionContext.session.role,
+      schoolId: sessionContext.session.schoolId,
+      studentId: sessionContext.session.studentId,
+      teacherId: sessionContext.session.teacherId,
+      vendorId: sessionContext.session.vendorId,
       session: publicSession(sessionContext.token, sessionContext.session)
     });
     return;
@@ -1510,6 +1858,7 @@ async function handleApi(req, res, url) {
     const sessionContext = requireSession(req, res, { renew: false });
     if (!sessionContext) return;
     sessions.delete(sessionContext.hashedToken);
+    await persistSessions();
     await audit("auth.logout", req, sessionContext.session);
     sendJson(res, 200, { signedOut: true });
     return;
@@ -1562,6 +1911,7 @@ async function handleApi(req, res, url) {
       if (school) {
         school.status = "Active";
         school.membershipExpiry = "2027-05-18";
+        upsertLocalSchoolAdminUser(db, school, "Active");
       }
       const existingPayment = db.payments.find((item) =>
         (gatewayEventId && item.gatewayEventId === gatewayEventId) ||
@@ -1916,7 +2266,7 @@ async function handleApi(req, res, url) {
     if (uploadType === "student_roster") {
       for (const record of records) {
         db.students ||= [];
-        db.students.unshift({
+        const student = {
           id: `student-${slug(record.student_id)}`,
           studentId: record.student_id,
           name: record.student_name,
@@ -1931,18 +2281,21 @@ async function handleApi(req, res, url) {
           age: Number(record.age || 13),
           status: "Invited",
           access: ["Competitions", "Student exchange", "Age-gated content"]
-        });
+        };
+        student.email = sanitizeEmail(record.student_email || record.email || record.parent1_email || "");
+        db.students.unshift(student);
+        upsertLocalStudentUser(db, student, student.email, "Invited");
       }
     }
 
     if (uploadType === "staff_roster") {
       db.teachers ||= [];
       for (const record of records) {
-        db.teachers.unshift({
+        const teacher = {
           id: `teacher-${slug(record.employee_id)}`,
           employeeId: record.employee_id,
           name: record.name,
-          email: record.email,
+          email: sanitizeEmail(record.email),
           role: record.role,
           designation: record.designation,
           isHrt: /^yes$/i.test(record.is_hrt),
@@ -1950,7 +2303,9 @@ async function handleApi(req, res, url) {
           grades: record.grades.split(",").map((grade) => grade.trim()).filter(Boolean),
           schoolId: user.schoolId,
           status: "Active"
-        });
+        };
+        db.teachers.unshift(teacher);
+        upsertLocalTeacherUser(db, teacher, teacher.email, "Active");
       }
     }
 
@@ -1986,6 +2341,7 @@ async function handleApi(req, res, url) {
       achievements: []
     };
     db.schools.unshift(school);
+    const invitedAdmin = upsertLocalSchoolAdminUser(db, school, paymentPending ? "Invited" : "Active");
     db.payments.unshift({
       id: createId("pay", school.name),
       schoolId: school.id,
@@ -2008,6 +2364,25 @@ async function handleApi(req, res, url) {
         user
       });
     }
+    if (invitedAdmin) {
+      db.notifications ||= [];
+      db.notifications.unshift(
+        {
+          id: createId("note", `${school.name}-admin-invite-superadmin`),
+          audience: "Super Admin",
+          title: `School Admin invite prepared for ${school.name}: ${invitedAdmin.email}.`,
+          unread: true,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: createId("note", `${school.name}-admin-invite-schooladmin`),
+          audience: "School Admin",
+          title: `Your Yarra access is ready for ${school.name}. Sign in with ${invitedAdmin.email}.`,
+          unread: true,
+          createdAt: new Date().toISOString()
+        }
+      );
+    }
     await writeJson(dbPath, db);
     await audit("schools.create", req, user, { schoolId: school.id, school: school.name, paymentPending });
     sendJson(res, 201, school);
@@ -2029,8 +2404,29 @@ async function handleApi(req, res, url) {
       payment.method = payment.method || "Razorpay";
       payment.createdAt = new Date().toISOString().slice(0, 10);
     }
-    await addNotification(`Payment received for ${school.name}. Membership activated.`, "Super Admin");
-    await addNotification(`Payment received for ${school.name}. Membership activated.`, "School Admin");
+    const invitedAdmin = !usePostgres ? upsertLocalSchoolAdminUser(db, school, "Active") : null;
+    if (usePostgres) {
+      await addNotification(`Payment received for ${school.name}. Membership activated.`, "Super Admin");
+      await addNotification(`Payment received for ${school.name}. Membership activated.`, "School Admin");
+    } else {
+      db.notifications ||= [];
+      db.notifications.unshift(
+        {
+          id: createId("note", `${school.name}-payment-superadmin`),
+          audience: "Super Admin",
+          title: `Payment received for ${school.name}. Membership activated.`,
+          unread: true,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: createId("note", `${school.name}-payment-schooladmin`),
+          audience: "School Admin",
+          title: `Payment received for ${school.name}. Membership activated.${invitedAdmin ? ` School Admin access is active for ${invitedAdmin.email}.` : ""}`,
+          unread: true,
+          createdAt: new Date().toISOString()
+        }
+      );
+    }
     await writeJson(dbPath, db);
     await audit("schools.activate_membership", req, user, { schoolId: school.id, school: school.name });
     sendJson(res, 200, school);
@@ -2044,12 +2440,41 @@ async function handleApi(req, res, url) {
       id: createId("event", body.title),
       title: body.title,
       type: body.type || "Workshop",
+      scope: body.scope || "Intra school",
+      schoolId: user.schoolId,
       format: body.format || "Virtual",
       date: body.date || new Date().toISOString().slice(0, 10),
       host: body.host || "Yaara Consortium",
       capacity: Number(body.capacity || 100),
       registered: 0,
       paid: Boolean(body.paid),
+      fee: Boolean(body.paid) ? Number(body.fee || 0) : 0,
+      description: body.description || "",
+      venue: body.venue || "",
+      startTime: body.startTime || "",
+      endTime: body.endTime || "",
+      eligibility: body.eligibility || "",
+      registrationDeadline: body.registrationDeadline || "",
+      coordinatorName: body.coordinatorName || user.email || "",
+      coordinatorEmail: body.coordinatorEmail || user.email || "",
+      formHeaderImage: body.formHeaderImage && typeof body.formHeaderImage === "object"
+        ? {
+            name: body.formHeaderImage.name || "event-header",
+            size: Number(body.formHeaderImage.size || 0),
+            type: body.formHeaderImage.type || "image",
+            dataUrl: String(body.formHeaderImage.dataUrl || "")
+          }
+        : null,
+      registrationQuestions: Array.isArray(body.registrationQuestions)
+        ? body.registrationQuestions.map((question, index) => ({
+            id: question.id || `q-${index + 1}`,
+            label: question.label || question.question || `Question ${index + 1}`,
+            type: question.type || "short",
+            required: question.required !== false,
+            options: Array.isArray(question.options) ? question.options.filter(Boolean) : [],
+            accept: question.accept || ""
+          }))
+        : [],
       recording: false,
       materials: false
     };
@@ -2060,23 +2485,165 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && resource === "event-registrations" && !id) {
+    if (!canWrite(user, "event-registrations")) return deny(res);
+    const body = await readBody(req);
+    const event = db.events.find((item) => item.id === body.eventId);
+    if (!event) {
+      sendJson(res, 404, { error: "Event not found." });
+      return;
+    }
+    const isVisible = visibleEventsForUser(db, user).some((item) => item.id === event.id);
+    if (!isVisible) return deny(res);
+
+    const student = user.role === "Student"
+      ? db.students.find((item) => item.id === user.studentId)
+      : db.students.find((item) => item.id === body.studentId);
+    if (!student) {
+      sendJson(res, 400, { error: "Student account is required for registration." });
+      return;
+    }
+    const existing = (db.eventRegistrations || []).find((item) => item.eventId === event.id && item.studentId === student.id && item.status !== "Cancelled");
+    if (existing) {
+      sendJson(res, 409, { error: "This student is already registered or waiting for payment." });
+      return;
+    }
+    if (!event.paid && Number(event.registered || 0) >= Number(event.capacity || 0)) {
+      sendJson(res, 409, { error: "Event capacity is full." });
+      return;
+    }
+
+    const registration = {
+      id: createId("event-reg", `${event.title}-${student.name}`),
+      eventId: event.id,
+      eventTitle: event.title,
+      studentId: student.id,
+      studentName: student.name,
+      schoolId: student.schoolId,
+      status: event.paid ? "Payment pending" : "Confirmed",
+      paymentStatus: event.paid ? "Payment pending" : "Not required",
+      amount: event.paid ? Number(event.fee || body.amount || 0) : 0,
+      answers: body.answers && typeof body.answers === "object" ? body.answers : {},
+      files: Array.isArray(body.files)
+        ? body.files.map((file) => ({
+            question: file.question || "File upload",
+            name: file.name || "uploaded-file",
+            size: Number(file.size || 0),
+            type: file.type || "unknown"
+          }))
+        : [],
+      createdAt: new Date().toISOString()
+    };
+    db.eventRegistrations ||= [];
+    db.eventRegistrations.unshift(registration);
+    if (!event.paid) {
+      event.registered = Number(event.registered || 0) + 1;
+    } else {
+      db.payments ||= [];
+      db.payments.unshift({
+        id: createId("pay", `${event.title}-${student.name}`),
+        schoolId: student.schoolId,
+        type: "Event registration",
+        amount: registration.amount,
+        status: "Payment pending",
+        invoice: `YAARA-EVT-${1000 + db.payments.length + 1}`,
+        method: "Razorpay",
+        eventId: event.id,
+        registrationId: registration.id,
+        createdAt: new Date().toISOString().slice(0, 10)
+      });
+    }
+    await writeJson(dbPath, db);
+    await audit("events.register", req, user, { eventId: event.id, registrationId: registration.id, paid: event.paid });
+    sendJson(res, 201, registration);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "event-registrations" && action === "cancel") {
+    if (!canWrite(user, "event-registrations")) return deny(res);
+    const registration = (db.eventRegistrations || []).find((item) => item.id === id);
+    if (!registration) {
+      sendJson(res, 404, { error: "Registration not found." });
+      return;
+    }
+    const event = db.events.find((item) => item.id === registration.eventId);
+    const ownsEvent = ["School Admin", "Teacher"].includes(user.role) && event?.schoolId === user.schoolId;
+    const ownsStudent = user.role === "Student" && registration.studentId === user.studentId;
+    if (!ownsEvent && !ownsStudent) return deny(res);
+    if (registration.status === "Confirmed" && event) {
+      event.registered = Math.max(0, Number(event.registered || 0) - 1);
+    }
+    registration.status = "Cancelled";
+    registration.cancelledAt = new Date().toISOString();
+    await writeJson(dbPath, db);
+    await audit("events.cancel_registration", req, user, { registrationId: registration.id, eventId: registration.eventId });
+    sendJson(res, 200, registration);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "event-registrations" && action === "mark-paid") {
+    if (!["School Admin", "Teacher"].includes(user.role)) return deny(res);
+    const registration = (db.eventRegistrations || []).find((item) => item.id === id);
+    if (!registration) {
+      sendJson(res, 404, { error: "Registration not found." });
+      return;
+    }
+    const event = db.events.find((item) => item.id === registration.eventId);
+    if (!event || event.schoolId !== user.schoolId) return deny(res);
+    if (Number(event.registered || 0) >= Number(event.capacity || 0)) {
+      sendJson(res, 409, { error: "Event capacity is full." });
+      return;
+    }
+    registration.status = "Confirmed";
+    registration.paymentStatus = "Paid";
+    registration.paidAt = new Date().toISOString();
+    event.registered = Number(event.registered || 0) + 1;
+    const payment = (db.payments || []).find((item) => item.registrationId === registration.id);
+    if (payment) payment.status = "Paid";
+    await writeJson(dbPath, db);
+    await audit("events.mark_registration_paid", req, user, { registrationId: registration.id, eventId: event.id });
+    sendJson(res, 200, registration);
+    return;
+  }
+
   if (req.method === "POST" && resource === "students") {
     if (!canWrite(user, "students")) return deny(res);
     const body = await readBody(req);
+    const accessEmail = validateEmailField(body.email || body.studentEmail || body.guardianEmail, "student login email");
     const student = {
       id: createId("student", body.name),
+      studentId: body.studentId || "",
+      email: accessEmail,
       name: body.name,
       grade: body.grade || "Grade 8",
       age: Number(body.age || 13),
       schoolId: body.schoolId || db.schools[0]?.id,
       guardianEmail: body.guardianEmail || "",
       status: "Invited",
-      access: Array.isArray(body.access) ? body.access : ["Competitions", "Student exchange"]
+      access: Array.isArray(body.access) ? body.access : ["Competitions", "Student exchange", "Age-gated content"]
     };
     db.students ||= [];
     db.students.unshift(student);
+    const invitedStudent = upsertLocalStudentUser(db, student, accessEmail, "Invited");
+    db.notifications ||= [];
+    db.notifications.unshift(
+      {
+        id: createId("note", `${student.name}-student-invite-schooladmin`),
+        audience: "School Admin",
+        title: `Student access invited for ${student.name}: ${invitedStudent.email}.`,
+        unread: true,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: createId("note", `${student.name}-student-invite-student`),
+        audience: "Student",
+        title: `Your Yarra student access is ready. Sign in with ${invitedStudent.email}.`,
+        unread: true,
+        createdAt: new Date().toISOString()
+      }
+    );
     await writeJson(dbPath, db);
-    await audit("students.invite", req, user, { studentId: student.id, schoolId: student.schoolId });
+    await audit("students.invite", req, user, { studentId: student.id, schoolId: student.schoolId, email: invitedStudent.email });
     sendJson(res, 201, student);
     return;
   }
@@ -2127,6 +2694,270 @@ async function handleApi(req, res, url) {
     await writeJson(dbPath, db);
     await audit("exchanges.create", req, user, { exchangeId: exchange.id, type: exchange.type });
     sendJson(res, 201, exchange);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "leadership-threads" && !id) {
+    if (!canWrite(user, "leadership-threads")) return deny(res);
+    const body = await readBody(req);
+    const thread = {
+      id: createId("leader-thread", body.title),
+      title: body.title || "Leadership discussion",
+      prompt: body.prompt || "",
+      forumDate: body.forumDate || new Date().toISOString().slice(0, 10),
+      author: user.email || user.role,
+      schoolId: user.schoolId || null,
+      schoolName: db.schools.find((school) => school.id === user.schoolId)?.name || "Yarra Consortium",
+      replies: [],
+      takeaways: body.takeaway
+        ? [{
+            id: createId("takeaway", body.takeaway),
+            text: sanitizeText(body.takeaway, ""),
+            author: user.email || user.role,
+            createdAt: new Date().toISOString()
+          }]
+        : [],
+      createdAt: new Date().toISOString()
+    };
+    db.leadershipThreads ||= [];
+    db.leadershipThreads.unshift(thread);
+    await writeJson(dbPath, db);
+    await audit("leadership.thread_create", req, user, { threadId: thread.id });
+    sendJson(res, 201, thread);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "leadership-threads" && ["reply", "takeaway"].includes(action)) {
+    if (!canWrite(user, "leadership-threads")) return deny(res);
+    const thread = (db.leadershipThreads || []).find((item) => item.id === id);
+    if (!thread) {
+      sendJson(res, 404, { error: "Leadership thread not found." });
+      return;
+    }
+    const body = await readBody(req);
+    const text = sanitizeText(body.text || "", "");
+    if (!text) {
+      sendJson(res, 400, { error: "Text is required." });
+      return;
+    }
+    if (action === "reply") {
+      thread.replies ||= [];
+      thread.replies.unshift({
+        id: createId("leader-reply", text),
+        text,
+        author: user.email || user.role,
+        role: user.role,
+        createdAt: new Date().toISOString()
+      });
+    }
+    if (action === "takeaway") {
+      thread.takeaways ||= [];
+      thread.takeaways.unshift({
+        id: createId("takeaway", text),
+        text,
+        author: user.email || user.role,
+        createdAt: new Date().toISOString()
+      });
+    }
+    await writeJson(dbPath, db);
+    await audit(`leadership.${action}`, req, user, { threadId: thread.id });
+    sendJson(res, 200, thread);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "content" && !id) {
+    if (!canWrite(user, "content")) return deny(res);
+    const body = await readBody(req);
+    const type = body.type || "Article";
+    const contentItem = {
+      id: createId("content", body.title || type),
+      title: body.title || "Untitled post",
+      type,
+      speaker: body.speaker || user.email || "Yarra member",
+      authorRole: user.role,
+      schoolId: user.schoolId || null,
+      category: body.category || "Community",
+      body: body.body || "",
+      mediaUrl: body.mediaUrl || "",
+      thumbnailUrl: body.thumbnailUrl || body.mediaUrl || "",
+      tags: Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean),
+      audience: Array.isArray(body.audience) ? body.audience : ["School Admin", "Teacher", "Student"],
+      minAge: Number(body.minAge || 5),
+      maxAge: Number(body.maxAge || 18),
+      restrictedToEarlyYears: Boolean(body.restrictedToEarlyYears),
+      isVendorPromotional: false,
+      likes: 0,
+      likedBy: [],
+      saved: 0,
+      savedBy: [],
+      comments: 0,
+      commentThreads: [],
+      views: 0,
+      createdAt: new Date().toISOString()
+    };
+    db.content ||= [];
+    db.content.unshift(contentItem);
+    await writeJson(dbPath, db);
+    await audit("content.create", req, user, { contentId: contentItem.id, type: contentItem.type });
+    sendJson(res, 201, contentItem);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "content" && ["like", "save", "comment"].includes(action)) {
+    if (!canWrite(user, "content", action)) return deny(res);
+    const item = db.content.find((contentItem) => contentItem.id === id);
+    if (!item) {
+      sendJson(res, 404, { error: "Content not found." });
+      return;
+    }
+    const actor = user.email || user.id || user.role;
+    if (action === "like") {
+      item.likedBy ||= [];
+      if (item.likedBy.includes(actor)) {
+        item.likedBy = item.likedBy.filter((entry) => entry !== actor);
+      } else {
+        item.likedBy.push(actor);
+      }
+      item.likes = item.likedBy.length;
+    }
+    if (action === "save") {
+      item.savedBy ||= [];
+      if (item.savedBy.includes(actor)) {
+        item.savedBy = item.savedBy.filter((entry) => entry !== actor);
+      } else {
+        item.savedBy.push(actor);
+      }
+      item.saved = item.savedBy.length;
+    }
+    if (action === "comment") {
+      const body = await readBody(req);
+      const text = sanitizeText(body.text || "", "");
+      if (!text) {
+        sendJson(res, 400, { error: "Comment cannot be empty." });
+        return;
+      }
+      item.commentThreads ||= [];
+      item.commentThreads.unshift({
+        id: createId("comment", text),
+        author: user.email || user.role,
+        role: user.role,
+        text,
+        createdAt: new Date().toISOString()
+      });
+      item.comments = item.commentThreads.length;
+    }
+    await writeJson(dbPath, db);
+    await audit(`content.${action}`, req, user, { contentId: item.id });
+    sendJson(res, 200, item);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "vendor-products" && !id) {
+    if (!canWrite(user, "vendor-products")) return deny(res);
+    const body = await readBody(req);
+    let vendor = db.vendors.find((item) => item.id === user.vendorId) || db.vendors.find((item) => sanitizeEmail(item.contact) === sanitizeEmail(user.email));
+    if (!vendor) {
+      vendor = {
+        id: user.vendorId || createId("vendor", user.email || "vendor"),
+        name: user.name || `${(user.email || "Vendor").split("@")[0]} Store`,
+        category: body.category || "EdTech",
+        contact: user.email || "",
+        offer: "Marketplace seller storefront",
+        status: "Approved",
+        featured: false
+      };
+      db.vendors ||= [];
+      db.vendors.unshift(vendor);
+    }
+    const product = {
+      id: createId("product", body.name),
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      name: body.name || "Marketplace product",
+      category: body.category || vendor.category || "EdTech",
+      description: body.description || "",
+      price: Number(body.price || 0),
+      stock: Number(body.stock || 0),
+      audience: body.audience || "All members",
+      delivery: body.delivery || "Standard delivery",
+      imageUrl: body.imageUrl || "",
+      status: "Active",
+      rating: Number(body.rating || 4.5),
+      createdAt: new Date().toISOString()
+    };
+    db.vendorProducts ||= [];
+    db.vendorProducts.unshift(product);
+    await writeJson(dbPath, db);
+    await audit("market.product_create", req, user, { productId: product.id, vendorId: vendor.id });
+    sendJson(res, 201, product);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "market-orders" && !id) {
+    if (!canWrite(user, "market-orders")) return deny(res);
+    const body = await readBody(req);
+    const cartItems = Array.isArray(body.items) ? body.items : [];
+    const items = cartItems.map((cartItem) => {
+      const product = (db.vendorProducts || []).find((item) => item.id === cartItem.productId);
+      if (!product) return null;
+      const quantity = clampNumber(cartItem.quantity || 1, 1, Math.max(1, Number(product.stock || 9999)));
+      return {
+        productId: product.id,
+        vendorId: product.vendorId,
+        name: product.name,
+        price: Number(product.price || 0),
+        quantity
+      };
+    }).filter(Boolean);
+    if (!items.length) {
+      sendJson(res, 400, { error: "Cart is empty." });
+      return;
+    }
+    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const order = {
+      id: `YAARA-ORD-${1000 + (db.marketOrders || []).length + 1}`,
+      buyerRole: user.role,
+      buyerEmail: user.email || "",
+      buyerId: user.studentId || user.teacherId || user.id || null,
+      buyerName: user.email || user.role,
+      schoolId: user.schoolId || null,
+      items,
+      total,
+      status: "Placed",
+      tracking: ["Placed"],
+      paymentStatus: "Payment pending",
+      createdAt: new Date().toISOString()
+    };
+    db.marketOrders ||= [];
+    db.marketOrders.unshift(order);
+    for (const item of items) {
+      const product = db.vendorProducts.find((entry) => entry.id === item.productId);
+      if (product) product.stock = Math.max(0, Number(product.stock || 0) - item.quantity);
+    }
+    await writeJson(dbPath, db);
+    await audit("market.order_create", req, user, { orderId: order.id, total });
+    sendJson(res, 201, order);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "market-orders" && action === "advance") {
+    if (!canWrite(user, "market-orders", "advance")) return deny(res);
+    const order = (db.marketOrders || []).find((item) => item.id === id);
+    if (!order) {
+      sendJson(res, 404, { error: "Order not found." });
+      return;
+    }
+    if (!(order.items || []).some((item) => item.vendorId === user.vendorId)) return deny(res);
+    const steps = ["Placed", "Confirmed", "Packed", "Shipped", "Delivered"];
+    const currentIndex = Math.max(0, steps.indexOf(order.status));
+    const next = steps[Math.min(steps.length - 1, currentIndex + 1)];
+    order.status = next;
+    order.tracking = steps.slice(0, steps.indexOf(next) + 1);
+    if (next === "Confirmed") order.paymentStatus = "Payment requested";
+    if (next === "Delivered") order.deliveredAt = new Date().toISOString();
+    await writeJson(dbPath, db);
+    await audit("market.order_advance", req, user, { orderId: order.id, status: order.status });
+    sendJson(res, 200, order);
     return;
   }
 

@@ -1,0 +1,128 @@
+{
+  "schools": [
+    {
+      "id": "school-sboa-jc-mpioikcy",
+      "name": "sboa jc",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "vishnuaravindhr@gmail.com",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    },
+    {
+      "id": "school-greenfield-public-school-mpioagta",
+      "name": "Greenfield Public School",
+      "city": "Bengaluru",
+      "board": "CBSE",
+      "type": "K-12",
+      "contact": "rkchelli43@gmail.com",
+      "earlyYears": true,
+      "status": "Active",
+      "membershipExpiry": "2027-05-18",
+      "achievements": []
+    }
+  ],
+  "users": [
+    {
+      "id": "user-school-admin-rkchelli43-gmail-com",
+      "email": "rkchelli43@gmail.com",
+      "name": "Greenfield Public School Admin",
+      "role": "School Admin",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T07:39:08.331Z"
+    },
+    {
+      "id": "user-school-admin-vishnuaravindhr-gmail-com",
+      "email": "vishnuaravindhr@gmail.com",
+      "name": "sboa jc Admin",
+      "role": "School Admin",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "vendorId": null,
+      "status": "Active",
+      "invitedAt": "2026-05-24T07:29:27.660Z"
+    }
+  ],
+  "students": [],
+  "teachers": [],
+  "vendors": [],
+  "events": [
+    {
+      "id": "event-ai-seminar-mpjgu2g1",
+      "title": "AI seminar",
+      "type": "Workshop",
+      "format": "Virtual",
+      "date": "2026-06-24",
+      "host": "SBOA JC",
+      "capacity": 20,
+      "registered": 0,
+      "paid": true,
+      "recording": false,
+      "materials": false
+    }
+  ],
+  "exchanges": [],
+  "content": [],
+  "promotions": [],
+  "notifications": [
+    {
+      "id": "note-sboa-jc-payment-superadmin-mpiorrya",
+      "audience": "Super Admin",
+      "title": "Payment received for sboa jc. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:32:46.402Z"
+    },
+    {
+      "id": "note-sboa-jc-payment-schooladmin-mpiorrya",
+      "audience": "School Admin",
+      "title": "Payment received for sboa jc. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:32:46.402Z"
+    },
+    {
+      "id": "note-greenfield-payment-superadmin",
+      "audience": "Super Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    },
+    {
+      "id": "note-greenfield-payment-schooladmin",
+      "audience": "School Admin",
+      "title": "Payment received for Greenfield Public School. Membership activated.",
+      "unread": false,
+      "createdAt": "2026-05-23T18:20:00.000Z"
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay-sboa-jc-mpioikcy",
+      "schoolId": "school-sboa-jc-mpioikcy",
+      "type": "Membership",
+      "amount": 100,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1002",
+      "method": "Razorpay emailed link",
+      "gatewayPaymentId": "",
+      "gatewayOrderId": "order_Ssu5vqrQzqRzd9",
+      "createdAt": "2026-05-23"
+    },
+    {
+      "id": "pay-greenfield-public-school-mpioagta",
+      "schoolId": "school-greenfield-public-school-mpioagta",
+      "type": "Membership",
+      "amount": 1,
+      "status": "Paid",
+      "invoice": "YAARA-INV-1001",
+      "method": "Razorpay",
+      "gatewayPaymentId": "Ssu072AfCLYb4C",
+      "gatewayOrderId": "order_SstzHQBoKoMF8E",
+      "createdAt": "2026-05-23"
+    }
+  ],
+  "uploadHistory": []
+}

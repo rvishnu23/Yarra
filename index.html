@@ -39,24 +39,13 @@
             <option>Vendor</option>
           </select>
         </label>
-        <label>
-          Session timeout
-          <select name="timeoutMinutes" id="loginSessionTimeout">
-            <option value="1">1 minute</option>
-            <option value="5">5 minutes</option>
-            <option value="15">15 minutes</option>
-            <option value="30" selected>30 minutes</option>
-            <option value="60">60 minutes</option>
-            <option value="120">120 minutes</option>
-          </select>
-        </label>
         <button class="primary-button" type="submit">Sign in</button>
         <button class="google-button" id="gmailLoginButton" type="button">
           <span aria-hidden="true">G</span>
           Continue with Gmail
         </button>
         <button class="ghost-button" id="vendorSignupOpenButton" type="button">Vendor sign-up information</button>
-        <p class="login-note">Use a Gmail address. Real Google OAuth can be enabled when a Google Client ID is added.</p>
+        <p class="login-note">Use the email address invited by Yarra. Real Google OAuth can be enabled when a Google Client ID is added.</p>
       </form>
     </section>
 
@@ -79,6 +68,7 @@
           <button class="nav-item" type="button" data-view="students">Student users</button>
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
+          <button class="nav-item" type="button" data-view="leadership">Leadership Connect</button>
           <button class="nav-item" type="button" data-view="library">Content library</button>
           <button class="nav-item" type="button" data-view="vendorSignup">Vendor sign-up</button>
           <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
@@ -109,18 +99,6 @@
                 <option>Vendor</option>
               </select>
             </label>
-            <label class="session-control">
-              <span>Session</span>
-              <select id="sessionTimeoutSelect" aria-label="Session timeout">
-                <option value="1">1 min</option>
-                <option value="5">5 min</option>
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="60">60 min</option>
-                <option value="120">120 min</option>
-              </select>
-            </label>
-            <span class="session-status" id="sessionStatus">Session --</span>
             <button class="icon-button" id="notificationButton" type="button" aria-label="Notifications">
               <span aria-hidden="true">3</span>
             </button>
@@ -128,12 +106,6 @@
             <button class="ghost-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
-        <div class="session-warning hidden" id="sessionWarning" role="status">
-          <strong>Session expiring soon</strong>
-          <span>Extend now or continue working to refresh your secure session.</span>
-          <button class="ghost-button" id="extendSessionButton" type="button">Extend session</button>
-        </div>
-
         <main>
           <section class="view is-active" id="dashboard" aria-label="Dashboard">
             <div class="metrics-grid">
@@ -152,7 +124,7 @@
                 <strong>19</strong>
                 <p>4 paid registrations open</p>
               </article>
-              <article class="metric">
+              <article class="metric" hidden>
                 <span>Revenue</span>
                 <strong>₹18.4L</strong>
                 <p>Memberships, events, promotions</p>
@@ -267,7 +239,7 @@
                   <input name="school" type="text" value="Greenfield Public School">
                 </label>
                 <label>
-                  School billing email
+                  School business email / admin login
                   <input name="billingEmail" type="email" value="admin@school.edu">
                 </label>
                 <label>
@@ -367,12 +339,67 @@
             </div>
           </section>
 
+          <section class="view" id="leadership" aria-label="Leadership Connect">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">For school leaders and principals</p>
+                <h2>Leadership Connect</h2>
+                <p class="panel-copy">Forum details, discussion prompts, takeaways, and leader-only discussion threads.</p>
+              </div>
+              <button class="primary-button" id="leaderThreadButton" type="button">Start discussion</button>
+            </div>
+
+            <div class="leadership-layout">
+              <section class="panel leadership-forum">
+                <p class="eyebrow">Leadership forum details</p>
+                <h3>Monthly Principal Roundtable</h3>
+                <p class="panel-copy">
+                  A private space for Yarra member-school leaders to exchange strategy, operational learnings,
+                  policy practices, and collaborative opportunities.
+                </p>
+                <div class="summary-grid">
+                  <article><span>Cadence</span><strong>Monthly</strong></article>
+                  <article><span>Mode</span><strong>Hybrid</strong></article>
+                  <article><span>Audience</span><strong>Principals & school heads</strong></article>
+                </div>
+              </section>
+
+              <section class="panel leadership-prompts">
+                <p class="eyebrow">Discussion prompts</p>
+                <ul class="clean-list">
+                  <li>What leadership decision had the biggest student-impact this month?</li>
+                  <li>Where can Yarra schools collaborate instead of solving alone?</li>
+                  <li>Which parent, teacher, or student signal needs leadership attention?</li>
+                  <li>What should be escalated to the consortium-wide roadmap?</li>
+                </ul>
+              </section>
+
+              <section class="panel leadership-takeaways">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Key takeaways</p>
+                    <h3>Shared leadership notes</h3>
+                  </div>
+                  <button class="ghost-button" id="leaderTakeawayButton" type="button">Add takeaway</button>
+                </div>
+                <div class="compact-list" id="leadershipTakeaways"></div>
+              </section>
+
+              <section class="panel leadership-threads-panel">
+                <p class="eyebrow">Leader discussion threads</p>
+                <h3>Principal conversations</h3>
+                <div class="leadership-threads" id="leadershipThreads"></div>
+              </section>
+            </div>
+          </section>
+
           <section class="view" id="library" aria-label="Content library">
             <div class="section-bar">
               <div>
-                <p class="eyebrow">Searchable resources</p>
-                <h2>Workshops, podcasts, webinars, articles</h2>
+                <p class="eyebrow">Community media feed</p>
+                <h2>Stories, shorts, videos, articles</h2>
               </div>
+              <button class="primary-button" id="contentPostButton" type="button">Create post</button>
               <label class="search-field">
                 <span>Search</span>
                 <input id="librarySearch" type="search" placeholder="Search by title, tag, speaker">
@@ -380,12 +407,16 @@
             </div>
             <div class="filter-row" aria-label="Library filters">
               <button class="filter-chip is-active" type="button" data-filter="All">All</button>
-              <button class="filter-chip" type="button" data-filter="Recorded Workshop">Recorded Workshop</button>
-              <button class="filter-chip" type="button" data-filter="Podcast">Podcast</button>
+              <button class="filter-chip" type="button" data-filter="Story">Stories</button>
+              <button class="filter-chip" type="button" data-filter="Short">Shorts</button>
+              <button class="filter-chip" type="button" data-filter="Video">Videos</button>
               <button class="filter-chip" type="button" data-filter="Article">Article</button>
               <button class="filter-chip" type="button" data-filter="Webinar">Webinar</button>
+              <button class="filter-chip" type="button" data-filter="Recorded Workshop">Workshops</button>
+              <button class="filter-chip" type="button" data-filter="Podcast">Podcast</button>
             </div>
-            <div class="card-grid three" id="libraryGrid"></div>
+            <div class="story-strip" id="storyStrip"></div>
+            <div class="social-feed" id="libraryGrid"></div>
           </section>
 
           <section class="view" id="vendorSignup" aria-label="Vendor sign-up">
@@ -516,9 +547,11 @@
           <section class="view" id="vendors" aria-label="Vendor marketplace">
             <div class="section-bar">
               <div>
-                <p class="eyebrow">Curated procurement</p>
-                <h2>Vendor directory and promotions</h2>
+                <p class="eyebrow">Yarra e-market</p>
+                <h2>Marketplace, checkout, and orders</h2>
               </div>
+              <button class="primary-button" id="vendorProductButton" type="button">Upload product</button>
+              <button class="ghost-button" id="marketCartButton" type="button">Cart 0</button>
               <label class="search-field">
                 <span>Category</span>
                 <select id="vendorCategory">
@@ -540,7 +573,21 @@
               </div>
               <button class="ghost-button dark" type="button">Review campaign</button>
             </section>
-            <div class="card-grid three" id="vendorGrid"></div>
+            <div class="market-layout">
+              <section>
+                <div class="market-toolbar">
+                  <button class="filter-chip is-active market-tab" type="button" data-market-tab="products">Products</button>
+                  <button class="filter-chip market-tab" type="button" data-market-tab="vendors">Vendors</button>
+                  <button class="filter-chip market-tab" type="button" data-market-tab="orders">Orders</button>
+                </div>
+                <div class="market-grid" id="marketGrid"></div>
+              </section>
+              <aside class="panel market-side-panel">
+                <p class="eyebrow">Order tracking</p>
+                <h3>Recent orders</h3>
+                <div class="compact-list" id="marketOrders"></div>
+              </aside>
+            </div>
           </section>
 
           <section class="view" id="profiles" aria-label="School profiles">

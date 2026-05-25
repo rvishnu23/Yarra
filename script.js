@@ -1,13 +1,16 @@
 const SESSION_STORAGE_KEY = "yaara-session";
 const USER_STORAGE_KEY = "yaara-user";
 const AUTH_STORAGE_KEY = "yaara-authenticated";
-const SESSION_TIMEOUT_STORAGE_KEY = "yaara-session-timeout-minutes";
-const defaultTimeoutMinutes = 30;
+const defaultTimeoutMinutes = 0;
 let activeSession = null;
 
 const getStoredJson = (key, fallback = {}) => {
   try {
-    return JSON.parse(window.sessionStorage?.getItem(key) || JSON.stringify(fallback));
+    return JSON.parse(
+      window.localStorage?.getItem(key) ||
+        window.sessionStorage?.getItem(key) ||
+        JSON.stringify(fallback)
+    );
   } catch {
     return fallback;
   }
@@ -16,6 +19,7 @@ const getStoredJson = (key, fallback = {}) => {
 const setSessionValue = (key, value) => {
   try {
     window.sessionStorage?.setItem(key, value);
+    window.localStorage?.setItem(key, value);
   } catch {
     // Storage may be unavailable in embedded preview modes.
   }
@@ -23,7 +27,7 @@ const setSessionValue = (key, value) => {
 
 const getSessionValue = (key) => {
   try {
-    return window.sessionStorage?.getItem(key) || null;
+    return window.localStorage?.getItem(key) || window.sessionStorage?.getItem(key) || null;
   } catch {
     return null;
   }
@@ -36,6 +40,7 @@ const storeSession = (session) => {
   activeSession = session;
   try {
     window.sessionStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    window.localStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
     // In-memory session still keeps the current tab authenticated.
   }
@@ -43,22 +48,13 @@ const storeSession = (session) => {
 };
 
 const updateSessionFromHeaders = (response) => {
-  const session = currentSession();
-  const expiresAt = response.headers.get("X-Session-Expires-At");
-  const timeoutMinutes = response.headers.get("X-Session-Timeout-Minutes");
-  if (!session || !expiresAt) return;
-  storeSession({
-    ...session,
-    expiresAt,
-    timeoutMinutes: Number(timeoutMinutes || session.timeoutMinutes)
-  });
+  return response;
 };
 
 const handleResponse = async (response, fallbackError) => {
   const body = await response.json().catch(() => ({}));
   updateSessionFromHeaders(response);
   if (response.status === 401) {
-    expireSession(body.error || "Your secure session has expired. Please sign in again.", { silent: suppressSessionExpiryToast });
     throw new Error(body.error || fallbackError);
   }
   if (!response.ok) {
@@ -72,7 +68,9 @@ const handleResponse = async (response, fallbackError) => {
 
 const api = {
   async state() {
-    const response = await fetch(`/api/state?role=${encodeURIComponent(currentRole())}`);
+    const response = await fetch(`/api/state?role=${encodeURIComponent(currentRole())}`, {
+      headers: authHeaders(false)
+    });
     return handleResponse(response, "Unable to load platform state");
   },
   async stateWithSession(session) {
@@ -121,8 +119,12 @@ const api = {
     });
     return handleResponse(response, "Unable to create UPI payment");
   },
-  async post(path) {
-    const response = await fetch(path, { method: "POST", headers: authHeaders(false) });
+  async post(path, payload = null) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: authHeaders(Boolean(payload)),
+      ...(payload ? { body: JSON.stringify(payload) } : {})
+    });
     return handleResponse(response, "Action failed");
   },
   async gmailLogin(payload) {
@@ -183,10 +185,10 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "library", "vendorSignup", "vendors", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "library", "profiles"],
-  Student: ["dashboard", "events", "exchange", "library"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "library", "vendorSignup", "vendors", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "library", "vendors", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
+  Student: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
@@ -247,6 +249,13 @@ const tutorialModuleDetails = {
     target: "#exchange .kanban",
     actions: ["Click Post exchange slot.", "Choose Teacher or Student exchange.", "Track opportunities across Open, Under Review, Matched, and Completed."]
   },
+  leadership: {
+    title: "Leadership Connect",
+    goal: "Use principal-only forums for leadership prompts, takeaways, and discussion threads.",
+    challenge: "Review forum details, add a takeaway, and start a leader discussion thread.",
+    target: "#leadership .section-bar",
+    actions: ["Read the monthly forum details.", "Use discussion prompts to guide leadership reflection.", "Add key takeaways after each forum.", "Start or reply to leader-only discussion threads."]
+  },
   library: {
     title: "Content library",
     goal: "Search and filter workshops, podcasts, webinars, and articles.",
@@ -285,7 +294,7 @@ const tutorialRoleIntro = {
   Vendor: "You are learning the vendor path: application, marketplace presence, enquiries, and approved promotions."
 };
 
-const currentRole = () => roleSelect?.value || getStoredJson(USER_STORAGE_KEY, {}).role || "School Admin";
+const currentRole = () => currentSession()?.role || getStoredJson(USER_STORAGE_KEY, {}).role || roleSelect?.value || "School Admin";
 
 const authHeaders = (json = true) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
@@ -301,16 +310,21 @@ const loginForm = document.querySelector("#loginForm");
 const gmailLoginButton = document.querySelector("#gmailLoginButton");
 const vendorSignupOpenButton = document.querySelector("#vendorSignupOpenButton");
 const roleSelect = document.querySelector("#roleSelect");
-const loginSessionTimeout = document.querySelector("#loginSessionTimeout");
-const sessionTimeoutSelect = document.querySelector("#sessionTimeoutSelect");
-const sessionStatus = document.querySelector("#sessionStatus");
-const sessionWarning = document.querySelector("#sessionWarning");
-const extendSessionButton = document.querySelector("#extendSessionButton");
+const loginSessionTimeout = null;
+const sessionTimeoutSelect = null;
+const sessionStatus = null;
+const sessionWarning = null;
+const extendSessionButton = null;
 const tutorialButton = document.querySelector("#tutorialButton");
 const vendorCategory = document.querySelector("#vendorCategory");
+const vendorProductButton = document.querySelector("#vendorProductButton");
+const marketCartButton = document.querySelector("#marketCartButton");
 const librarySearch = document.querySelector("#librarySearch");
 const metricsGrid = document.querySelector(".metrics-grid");
 const notificationButton = document.querySelector("#notificationButton");
+const contentPostButton = document.querySelector("#contentPostButton");
+const leaderThreadButton = document.querySelector("#leaderThreadButton");
+const leaderTakeawayButton = document.querySelector("#leaderTakeawayButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const invoicePanel = document.querySelector(".invoice-panel");
 const studentGrid = document.querySelector("#studentGrid");
@@ -326,6 +340,8 @@ const uploadHistoryBody = document.querySelector("#uploadHistoryBody");
 
 let state = {};
 let libraryFilter = "All";
+let marketTab = "products";
+let marketCart = [];
 let paymentConfigState = {};
 let pendingUpload = null;
 let sessionClock = null;
@@ -358,25 +374,11 @@ const showToast = (message) => {
 };
 
 function selectedSessionTimeoutMinutes() {
-  const stored = Number(window.localStorage?.getItem(SESSION_TIMEOUT_STORAGE_KEY));
-  const fromControl = Number(sessionTimeoutSelect?.value || loginSessionTimeout?.value);
-  const value = Number.isFinite(stored) && stored > 0 ? stored : fromControl || defaultTimeoutMinutes;
-  return Math.min(240, Math.max(1, Math.round(value)));
+  return 0;
 }
 
 function syncSessionTimeoutControls(value = selectedSessionTimeoutMinutes()) {
-  try {
-    window.localStorage?.setItem(SESSION_TIMEOUT_STORAGE_KEY, String(value));
-  } catch {
-    // Timeout selector still works for the current page lifecycle.
-  }
-  [loginSessionTimeout, sessionTimeoutSelect].forEach((control) => {
-    if (!control) return;
-    if (![...control.options].some((option) => option.value === String(value))) {
-      control.add(new Option(`${value} min`, String(value)));
-    }
-    control.value = String(value);
-  });
+  return value;
 }
 
 function formatRemaining(milliseconds) {
@@ -392,34 +394,7 @@ function clearSessionClock() {
 }
 
 function updateSessionUi() {
-  const session = currentSession();
-  if (!session?.expiresAt) {
-    clearSessionClock();
-    sessionStatus && (sessionStatus.textContent = "Session --");
-    sessionStatus?.classList.remove("is-warning");
-    sessionWarning?.classList.add("hidden");
-    return;
-  }
-
-  const remainingMs = Date.parse(session.expiresAt) - Date.now();
-  if (remainingMs <= 0) {
-    expireSession("Your secure session expired. Please sign in again.");
-    return;
-  }
-
-  const timeoutMs = Number(session.timeoutMinutes || selectedSessionTimeoutMinutes()) * 60 * 1000;
-  const warningMs = Math.min(60 * 1000, Math.max(20 * 1000, Math.round(timeoutMs / 3)));
-  const warning = remainingMs <= warningMs;
-
-  if (sessionStatus) {
-    sessionStatus.textContent = `Session ${formatRemaining(remainingMs)}`;
-    sessionStatus.classList.toggle("is-warning", warning);
-  }
-  sessionWarning?.classList.toggle("hidden", !warning);
-
-  if (!sessionClock) {
-    sessionClock = window.setInterval(updateSessionUi, 1000);
-  }
+  clearSessionClock();
 }
 
 function clearStoredSession() {
@@ -429,14 +404,14 @@ function clearStoredSession() {
     window.sessionStorage?.removeItem(AUTH_STORAGE_KEY);
     window.sessionStorage?.removeItem(USER_STORAGE_KEY);
     window.sessionStorage?.removeItem(SESSION_STORAGE_KEY);
+    window.localStorage?.removeItem(AUTH_STORAGE_KEY);
+    window.localStorage?.removeItem(USER_STORAGE_KEY);
+    window.localStorage?.removeItem(SESSION_STORAGE_KEY);
   } catch {
     // Storage may be unavailable in embedded preview modes.
   }
   toast?.classList.remove("is-visible");
   toast && (toast.textContent = "");
-  sessionStatus && (sessionStatus.textContent = "Session --");
-  sessionStatus?.classList.remove("is-warning");
-  sessionWarning?.classList.add("hidden");
 }
 
 function expireSession(message, { silent = false } = {}) {
@@ -448,24 +423,11 @@ function expireSession(message, { silent = false } = {}) {
 }
 
 async function extendSecureSession({ notify = false } = {}) {
-  if (!currentSession()?.id || sessionExtendInFlight) return;
-  sessionExtendInFlight = true;
-  try {
-    await api.extendSession(selectedSessionTimeoutMinutes());
-    if (notify) showToast("Secure session extended.");
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    sessionExtendInFlight = false;
-  }
+  return null;
 }
 
 function recordSessionActivity() {
-  if (!currentSession()?.id) return;
-  const now = Date.now();
-  if (now - lastSessionActivityAt < 30000) return;
-  lastSessionActivityAt = now;
-  extendSecureSession();
+  return null;
 }
 
 const clearPaymentOverlay = () => {
@@ -628,14 +590,20 @@ const startTutorial = () => {
 
 const applyRolePermissions = () => {
   const role = currentRole();
+  if (roleSelect && roleSelect.value !== role) roleSelect.value = role;
   const allowed = rolePermissions[role] || rolePermissions["School Admin"];
   navButtons.forEach((button) => {
     button.hidden = !allowed.includes(button.dataset.view);
   });
-  document.querySelector("#eventButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  document.querySelector("#eventButton").hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
   document.querySelector("#paymentButton").hidden = !["Super Admin", "School Admin"].includes(role);
   document.querySelector("#studentButton").hidden = !["Super Admin", "School Admin"].includes(role);
   document.querySelector("#inviteStudentButton").hidden = !["Super Admin", "School Admin"].includes(role);
+  contentPostButton.hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
+  leaderThreadButton.hidden = !["Super Admin", "School Admin"].includes(role);
+  leaderTakeawayButton.hidden = !["Super Admin", "School Admin"].includes(role);
+  vendorProductButton.hidden = currentRole() !== "Vendor";
+  marketCartButton.hidden = currentRole() === "Vendor";
   document.querySelector("#exchangeButton").hidden = role === "Vendor";
   document.querySelector(".membership-card").hidden = role === "Vendor";
 
@@ -664,8 +632,122 @@ const cardTemplate = ({ eyebrow, title, body, tags, image, className, action }) 
   </article>
 `;
 
+const eventQuestionTypes = [
+  { value: "short", label: "Short answer" },
+  { value: "paragraph", label: "Paragraph" },
+  { value: "multiple", label: "Multiple choice" },
+  { value: "checkboxes", label: "Checkboxes" },
+  { value: "dropdown", label: "Dropdown" },
+  { value: "file", label: "File upload" }
+];
+
+const defaultEventQuestionFields = [
+  { label: "Student full name", type: "short", required: true },
+  { label: "Grade and section", type: "short", required: true },
+  { label: "Parent/guardian contact number", type: "short", required: true },
+  { label: "Emergency contact name and number", type: "short", required: true },
+  { label: "Any medical conditions or allergies?", type: "paragraph", required: false },
+  { label: "Transport required?", type: "multiple", options: ["Yes", "No"], required: true },
+  { label: "Upload student photo or consent document", type: "file", accept: "image/*,.pdf,.doc,.docx", required: false },
+  { label: "Parent consent confirmation", type: "checkboxes", options: ["I confirm parent/guardian consent"], required: true }
+];
+
+const normalizeEventQuestion = (question, index = 0) => {
+  if (typeof question === "string") {
+    return {
+      id: `q-${index + 1}`,
+      label: question,
+      type: "short",
+      options: [],
+      accept: "",
+      required: true
+    };
+  }
+  return {
+    id: question?.id || `q-${index + 1}`,
+    label: question?.label || question?.question || `Question ${index + 1}`,
+    type: eventQuestionTypes.some((item) => item.value === question?.type) ? question.type : "short",
+    options: Array.isArray(question?.options) ? question.options.filter(Boolean) : [],
+    accept: question?.accept || "",
+    required: question?.required !== false
+  };
+};
+
+const escapeAttribute = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve) => {
+    if (!file?.name) {
+      resolve(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve({
+        name: file.name,
+        size: file.size,
+        type: file.type || "unknown",
+        dataUrl: reader.result
+      });
+    reader.onerror = () =>
+      resolve({
+        name: file.name,
+        size: file.size,
+        type: file.type || "unknown",
+        dataUrl: ""
+      });
+    reader.readAsDataURL(file);
+  });
+
+const eventQuestionsFor = (eventItem) => {
+  const questions = eventItem?.registrationQuestions?.length ? eventItem.registrationQuestions : defaultEventQuestionFields;
+  return questions.map(normalizeEventQuestion);
+};
+
 const renderMetrics = () => {
   const metrics = state.metrics;
+  if (currentRole() === "Student") {
+    const confirmed = (state.eventRegistrations || []).filter((registration) => registration.status === "Confirmed").length;
+    const pending = (state.eventRegistrations || []).filter((registration) => registration.status === "Payment pending").length;
+    const announcements = (state.notifications || []).length;
+    metricsGrid.innerHTML = `
+      <article class="metric">
+        <span>My school</span>
+        <strong>${state.schools[0]?.name || "School"}</strong>
+        <p>${state.students[0]?.grade || "Student profile"}</p>
+      </article>
+      <article class="metric">
+        <span>Upcoming events</span>
+        <strong>${state.events.length}</strong>
+        <p>${state.events.filter((event) => event.paid).length} paid events available</p>
+      </article>
+      <article class="metric">
+        <span>My registrations</span>
+        <strong>${confirmed}</strong>
+        <p>${pending} waiting for payment</p>
+      </article>
+      <article class="metric">
+        <span>Announcements</span>
+        <strong>${announcements}</strong>
+        <p>${(state.notifications || []).filter((notification) => notification.unread).length} unread</p>
+      </article>
+    `;
+    return;
+  }
+  const revenueCard = currentRole() === "Super Admin"
+    ? `
+      <article class="metric">
+        <span>Revenue</span>
+        <strong>${money(metrics.totalRevenue)}</strong>
+        <p>Memberships, events, promotions</p>
+      </article>
+    `
+    : "";
   metricsGrid.innerHTML = `
     <article class="metric">
       <span>Active schools</span>
@@ -687,16 +769,58 @@ const renderMetrics = () => {
       <strong>${metrics.students || 0}</strong>
       <p>${(state.students || []).filter((student) => student.status === "Invited").length} invitations pending</p>
     </article>
-    <article class="metric">
-      <span>Revenue</span>
-      <strong>${money(metrics.totalRevenue)}</strong>
-      <p>Memberships, events, promotions</p>
-    </article>
+    ${revenueCard}
   `;
 };
 
 const renderDashboard = () => {
-  document.querySelector(".dashboard-welcome h2").textContent = `${currentRole()} workspace`;
+  const panel = document.querySelector(".dashboard-welcome");
+  if (currentRole() !== "Student") {
+    panel.innerHTML = `
+      <p class="eyebrow">Workspace</p>
+      <h2>${currentRole()} workspace</h2>
+      <p class="panel-copy">
+        Your available modules are controlled by your selected role. Students see age-gated learning areas,
+        vendors see their marketplace workspace, and school teams see school operations.
+      </p>
+    `;
+    return;
+  }
+
+  const school = state.schools[0];
+  const student = state.students[0];
+  const registrations = state.eventRegistrations || [];
+  const announcements = state.notifications || [];
+  panel.innerHTML = `
+    <p class="eyebrow">Student home</p>
+    <h2>${student?.name || "Student"} workspace</h2>
+    <div class="student-home-grid">
+      <section>
+        <p class="eyebrow">School profile</p>
+        <h3>${school?.name || "Your school"}</h3>
+        <p>${school ? `${school.board} - ${school.city} - ${school.type}` : "School details will appear here."}</p>
+        <p>${school ? `${school.name} has ${school.status.toLowerCase()} Yarra access.` : ""}</p>
+      </section>
+      <section>
+        <p class="eyebrow">Upcoming events</p>
+        <ul class="clean-list">
+          ${state.events.slice(0, 4).map((event) => `<li>${event.title} <span>${event.date} - ${event.scope || "Intra school"}</span></li>`).join("") || "<li>No upcoming events yet</li>"}
+        </ul>
+      </section>
+      <section>
+        <p class="eyebrow">Announcements</p>
+        <ul class="clean-list">
+          ${announcements.slice(0, 4).map((item) => `<li>${item.title}</li>`).join("") || "<li>No announcements yet</li>"}
+        </ul>
+      </section>
+      <section>
+        <p class="eyebrow">My registrations</p>
+        <ul class="clean-list">
+          ${registrations.slice(0, 4).map((registration) => `<li>${registration.eventTitle} <span>${registration.status}</span></li>`).join("") || "<li>No registrations yet</li>"}
+        </ul>
+      </section>
+    </div>
+  `;
 };
 
 const schoolName = (id) => state.schools.find((school) => school.id === id)?.name || "Member school";
@@ -796,23 +920,49 @@ const renderSchoolDashboard = () => {
 };
 
 const renderEvents = () => {
+  const registrations = state.eventRegistrations || [];
+  const managedEvents = state.events.filter((event) => currentRole() === "Super Admin" || event.schoolId === currentSession()?.schoolId);
+  const eventStats = managedEvents.reduce(
+    (stats, event) => {
+      const eventRegistrations = registrations.filter((registration) => registration.eventId === event.id);
+      stats.confirmed += eventRegistrations.filter((registration) => registration.status === "Confirmed").length;
+      stats.pending += eventRegistrations.filter((registration) => registration.status === "Payment pending").length;
+      stats.cancelled += eventRegistrations.filter((registration) => registration.status === "Cancelled").length;
+      return stats;
+    },
+    { confirmed: 0, pending: 0, cancelled: 0 }
+  );
   document.querySelector("#eventsGrid").innerHTML = state.events.length
-    ? state.events
+    ? `
+        ${["School Admin", "Teacher", "Super Admin"].includes(currentRole()) ? `
+          <article class="panel event-dashboard-card">
+            <p class="eyebrow">Registration dashboard</p>
+            <h3>${eventStats.confirmed} confirmed</h3>
+            <p>${eventStats.pending} payment pending - ${eventStats.cancelled} cancelled</p>
+          </article>
+        ` : ""}
+        ${state.events
         .map((event) =>
           cardTemplate({
-            eyebrow: event.type,
+            eyebrow: `${event.type} - ${event.scope || "Intra school"}`,
             title: event.title,
-            body: `${event.format} - ${event.date} - ${event.registered}/${event.capacity} seats booked. Hosted by ${event.host}.`,
+            body: `${event.format} - ${event.date} - ${event.registered}/${event.capacity} confirmed. Hosted by ${event.host}.${event.paid ? ` Fee ${money(event.fee || 0)}.` : ""}`,
             tags: [
               event.paid ? "Paid entry" : "Member access",
+              event.scope || "Intra school",
               event.recording ? "Recording" : "Live",
               event.materials ? "Materials" : "Materials pending"
             ],
             image: event.type === "Workshop" ? imageMap.workshop : imageMap.event,
-            className: "project-card"
+            className: "project-card",
+            action: `
+              ${currentRole() === "Student" ? `<button class="primary-button register-event" type="button" data-id="${event.id}">${event.paid ? "Register and pay" : "Register"}</button>` : ""}
+              ${["School Admin", "Teacher", "Super Admin"].includes(currentRole()) && (currentRole() === "Super Admin" || event.schoolId === currentSession()?.schoolId) ? `<button class="ghost-button manage-event" type="button" data-id="${event.id}">Manage registrations</button>` : ""}
+            `
           })
         )
-        .join("")
+        .join("")}
+      `
     : `<article class="panel"><h3>No events yet</h3><p>Create the first Yarra event when you are ready.</p></article>`;
 };
 
@@ -844,52 +994,223 @@ const renderExchange = () => {
     .join("");
 };
 
+const renderLeadership = () => {
+  const threads = state.leadershipThreads || [];
+  const takeaways = threads.flatMap((thread) =>
+    (thread.takeaways || []).map((takeaway) => ({
+      ...takeaway,
+      threadTitle: thread.title
+    }))
+  );
+
+  document.querySelector("#leadershipTakeaways").innerHTML = takeaways.length
+    ? takeaways
+        .slice(0, 6)
+        .map((takeaway) => `
+          <article>
+            <strong>${takeaway.text}</strong>
+            <span>${takeaway.threadTitle} - ${takeaway.author || "Leader"}</span>
+          </article>
+        `)
+        .join("")
+    : `<article><strong>No takeaways yet</strong><span>Add concise notes after each principal forum.</span></article>`;
+
+  document.querySelector("#leadershipThreads").innerHTML = threads.length
+    ? threads
+        .map((thread) => `
+          <article class="leader-thread" data-id="${thread.id}">
+            <div class="thread-heading">
+              <div>
+                <p class="eyebrow">${thread.forumDate || "Leadership forum"}</p>
+                <h3>${thread.title}</h3>
+                <span>${thread.author || "School leader"} - ${thread.schoolName || schoolName(thread.schoolId)}</span>
+              </div>
+              <strong>${(thread.replies || []).length} replies</strong>
+            </div>
+            <p>${thread.prompt || "Open leadership discussion."}</p>
+            ${(thread.takeaways || []).length ? `
+              <div class="thread-takeaways">
+                ${(thread.takeaways || []).slice(0, 3).map((takeaway) => `<span>${takeaway.text}</span>`).join("")}
+              </div>
+            ` : ""}
+            ${(thread.replies || []).length ? `
+              <div class="comment-preview">
+                ${(thread.replies || []).slice(0, 2).map((reply) => `<p><strong>${reply.author}</strong> ${reply.text}</p>`).join("")}
+              </div>
+            ` : ""}
+            <div class="post-actions">
+              <button class="ghost-button reply-leader-thread" type="button" data-id="${thread.id}">Reply</button>
+              <button class="ghost-button add-thread-takeaway" type="button" data-id="${thread.id}">Add takeaway</button>
+            </div>
+          </article>
+        `)
+        .join("")
+    : `<article class="leader-thread"><h3>No leader threads yet</h3><p>Start the first principal discussion after your next forum.</p></article>`;
+};
+
 const renderLibrary = () => {
   const query = librarySearch.value.trim().toLowerCase();
-  const filtered = state.content.filter((item) => {
+  const normalizedContent = (state.content || []).map((item) => ({
+    ...item,
+    type: item.type || "Article",
+    speaker: item.speaker || item.author || "Yarra member",
+    category: item.category || "Community",
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    likes: Number(item.likes || 0),
+    comments: Number(item.comments || item.commentThreads?.length || 0),
+    saved: Number(item.saved || 0),
+    views: Number(item.views || 0),
+    body: item.body || "",
+    mediaUrl: item.mediaUrl || item.thumbnailUrl || "",
+    thumbnailUrl: item.thumbnailUrl || item.mediaUrl || ""
+  }));
+  const filtered = normalizedContent.filter((item) => {
     const matchesType = libraryFilter === "All" || item.type === libraryFilter;
-    const haystack = `${item.title} ${item.type} ${item.speaker} ${item.category} ${item.tags.join(" ")}`.toLowerCase();
+    const haystack = `${item.title} ${item.type} ${item.speaker} ${item.category} ${item.body} ${item.tags.join(" ")}`.toLowerCase();
     return matchesType && haystack.includes(query);
   });
+  const stories = normalizedContent.filter((item) => item.type === "Story").slice(0, 12);
 
+  document.querySelector("#storyStrip").innerHTML = stories.length
+    ? stories
+        .map((item) => `
+          <button class="story-bubble open-content" type="button" data-id="${item.id}">
+            <img src="${item.thumbnailUrl || imageMap.content}" alt="">
+            <span>${item.title}</span>
+          </button>
+        `)
+        .join("")
+    : `<article class="empty-story"><strong>No stories yet</strong><span>Create the first school story from this tab.</span></article>`;
   document.querySelector("#libraryGrid").innerHTML = filtered.length
     ? filtered
-        .map((item) =>
-          cardTemplate({
-            eyebrow: item.type,
-            title: item.title,
-            body: `${item.speaker} - ${item.category}. ${item.comments} comments and ${item.saved} saves.`,
-            tags: [...item.tags, item.restrictedToEarlyYears ? "Early Years only" : "All members"],
-            image: item.type === "Podcast" ? imageMap.podcast : imageMap.content,
-            className: "content-card"
-          })
-        )
+        .map((item) => {
+          const isShort = item.type === "Short";
+          const media = item.thumbnailUrl || (item.type === "Podcast" ? imageMap.podcast : imageMap.content);
+          return `
+            <article class="social-post ${isShort ? "is-short" : ""}" data-id="${item.id}">
+              <div class="post-topline">
+                <div>
+                  <p class="eyebrow">${item.type}</p>
+                  <h3>${item.title}</h3>
+                  <span>${item.speaker} - ${item.category}</span>
+                </div>
+                <strong>${item.views} views</strong>
+              </div>
+              ${["Video", "Short", "Recorded Workshop", "Webinar"].includes(item.type)
+                ? `<div class="post-media video-shell"><img src="${media}" alt=""><span>${item.type === "Short" ? "Short" : "Play video"}</span></div>`
+                : item.type === "Article"
+                  ? `<div class="article-preview"><h4>${item.title}</h4><p>${item.body || "Article summary will appear here."}</p></div>`
+                  : item.type === "Podcast"
+                    ? `<div class="podcast-preview"><span>Audio</span><p>${item.body || "Podcast episode"}</p></div>`
+                    : `<div class="post-media"><img src="${media}" alt=""></div>`}
+              <p class="post-copy">${item.body || "Shared with the Yarra community."}</p>
+              ${tagList([...item.tags, item.restrictedToEarlyYears ? "Early Years only" : "All members"])}
+              <div class="post-actions">
+                <button class="ghost-button content-like" type="button" data-id="${item.id}">Like ${item.likes}</button>
+                <button class="ghost-button content-comment" type="button" data-id="${item.id}">Comment ${item.comments}</button>
+                <button class="ghost-button content-save" type="button" data-id="${item.id}">Save ${item.saved}</button>
+              </div>
+              ${item.commentThreads?.length ? `
+                <div class="comment-preview">
+                  ${item.commentThreads.slice(0, 2).map((comment) => `<p><strong>${comment.author}</strong> ${comment.text}</p>`).join("")}
+                </div>
+              ` : ""}
+            </article>
+          `;
+        })
         .join("")
     : `<article class="panel"><h3>No matching content</h3><p>Try another type, speaker, title, or tag.</p></article>`;
 };
 
 const renderVendors = () => {
   const category = vendorCategory.value;
-  const filtered = state.vendors.filter((vendor) => category === "All categories" || vendor.category === category);
+  const vendors = (state.vendors || []).filter((vendor) => category === "All categories" || vendor.category === category);
+  const vendorName = (id) => (state.vendors || []).find((vendor) => vendor.id === id)?.name || "Vendor";
+  const products = (state.vendorProducts || []).filter((product) => {
+    const vendor = (state.vendors || []).find((item) => item.id === product.vendorId);
+    return category === "All categories" || product.category === category || vendor?.category === category;
+  });
+  const orders = state.marketOrders || [];
 
-  document.querySelector("#vendorGrid").innerHTML = filtered.length
-    ? filtered
-        .map((vendor) =>
-          cardTemplate({
-            eyebrow: vendor.category,
-            title: vendor.name,
-            body: vendor.offer,
-            tags: [vendor.status, vendor.featured ? "Featured" : "Standard", "Enquiry inbox"],
-            image: imageMap.vendor,
-            className: "vendor-card",
-            action:
-              vendor.status === "Approved" || currentRole() !== "Super Admin"
-                ? ""
-                : `<button class="ghost-button approve-vendor" type="button" data-id="${vendor.id}">Approve vendor</button>`
-          })
-        )
+  marketCartButton.textContent = `Cart ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
+  document.querySelectorAll(".market-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.marketTab === marketTab));
+  document.querySelector("#marketOrders").innerHTML = orders.length
+    ? orders
+        .slice(0, 5)
+        .map((order) => `
+          <article>
+            <strong>${order.id}</strong>
+            <span>${order.status} - ${money(order.total || 0)} - ${(order.items || []).length} items</span>
+          </article>
+        `)
         .join("")
-    : `<article class="panel"><h3>No vendors in this category yet</h3><p>New listings appear after admin approval.</p></article>`;
+    : `<article><strong>No orders yet</strong><span>Checkout orders will appear here.</span></article>`;
+
+  if (marketTab === "vendors") {
+    document.querySelector("#marketGrid").innerHTML = vendors.length
+      ? vendors
+          .map((vendor) =>
+            cardTemplate({
+              eyebrow: vendor.category,
+              title: vendor.name,
+              body: vendor.offer,
+              tags: [vendor.status, vendor.featured ? "Featured" : "Standard", "Seller storefront"],
+              image: imageMap.vendor,
+              className: "vendor-card",
+              action:
+                vendor.status === "Approved" || currentRole() !== "Super Admin"
+                  ? `<button class="ghost-button view-seller-products" type="button" data-id="${vendor.id}">View products</button>`
+                  : `<button class="ghost-button approve-vendor" type="button" data-id="${vendor.id}">Approve vendor</button>`
+            })
+          )
+          .join("")
+      : `<article class="panel"><h3>No vendors in this category yet</h3><p>New listings appear after admin approval.</p></article>`;
+    return;
+  }
+
+  if (marketTab === "orders") {
+    document.querySelector("#marketGrid").innerHTML = orders.length
+      ? orders
+          .map((order) => `
+            <article class="market-order-card">
+              <p class="eyebrow">${order.status}</p>
+              <h3>${order.id}</h3>
+              <p>${order.buyerName || order.buyerRole} - ${money(order.total || 0)}</p>
+              <ol class="order-steps">
+                ${["Placed", "Confirmed", "Packed", "Shipped", "Delivered"].map((step) => `<li class="${order.tracking?.includes(step) ? "done" : ""}">${step}</li>`).join("")}
+              </ol>
+              <div class="compact-list">
+                ${(order.items || []).map((item) => `<article><strong>${item.name}</strong><span>${item.quantity} x ${money(item.price)}</span></article>`).join("")}
+              </div>
+              ${currentRole() === "Vendor" && order.status !== "Delivered" ? `<button class="primary-button advance-order-status" type="button" data-id="${order.id}">Advance status</button>` : ""}
+            </article>
+          `)
+          .join("")
+      : `<article class="panel"><h3>No orders yet</h3><p>Shop products and checkout to create your first order.</p></article>`;
+    return;
+  }
+
+  document.querySelector("#marketGrid").innerHTML = products.length
+    ? products
+        .map((product) => `
+          <article class="product-card">
+            <img src="${product.imageUrl || imageMap.vendor}" alt="">
+            <div class="product-body">
+              <p class="eyebrow">${product.category || "Marketplace"}</p>
+              <h3>${product.name}</h3>
+              <p>${vendorName(product.vendorId)} - ${product.description || "School-ready product"}</p>
+              <strong>${money(product.price || 0)}</strong>
+              ${tagList([product.stock > 0 ? `${product.stock} in stock` : "Out of stock", product.audience || "Schools", product.delivery || "Standard delivery"])}
+              ${
+                currentRole() === "Vendor"
+                  ? `<button class="ghost-button update-order-status" type="button" data-id="${product.id}">Listed</button>`
+                  : `<button class="primary-button add-to-cart" type="button" data-id="${product.id}">Add to cart</button>`
+              }
+            </div>
+          </article>
+        `)
+        .join("")
+    : `<article class="panel"><h3>No products yet</h3><p>Vendor uploaded products and pricing will appear here.</p></article>`;
 };
 
 const invoiceMarkup = (payment) => `
@@ -991,6 +1312,7 @@ const renderStudents = () => {
           </div>
           <span class="status-pill">${student.status}</span>
           ${tagList(student.access || [])}
+          <p class="panel-copy">Login: ${student.email || student.studentEmail || student.guardianEmail}</p>
           <p class="panel-copy">Guardian: ${student.guardianEmail}</p>
         </article>
       `
@@ -1048,6 +1370,7 @@ const renderAll = () => {
   renderSchoolDashboard();
   renderEvents();
   renderExchange();
+  renderLeadership();
   renderLibrary();
   renderVendors();
   renderPayments();
@@ -1084,12 +1407,9 @@ const setAuthenticated = (value) => {
 
 const completeGmailLogin = async () => {
   const formData = new FormData(loginForm);
-  const timeoutMinutes = Number(formData.get("timeoutMinutes") || selectedSessionTimeoutMinutes());
-  syncSessionTimeoutControls(timeoutMinutes);
   const authUser = await api.gmailLogin({
     email: formData.get("email"),
-    role: formData.get("role"),
-    timeoutMinutes
+    role: formData.get("role")
   });
   roleSelect.value = authUser.role;
   setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
@@ -1180,7 +1500,7 @@ const openRazorpayHostedLink = (link, order, school) =>
         <div class="upi-details">
           <p class="eyebrow">Razorpay email delivery</p>
           <strong>${school.name} - ₹${order.amount / 100}</strong>
-          <p>The secure Razorpay payment link has been sent to ${school.contact}. The payment URL is hidden here so the school completes payment from its own mailbox.</p>
+          <p>The secure Razorpay payment link has been sent to ${school.contact}. This email is also invited as the School Admin login for ${school.name}.</p>
           <p class="login-note">If it does not arrive within a minute, check spam/promotions or confirm that this email address is the real school billing mailbox.</p>
         </div>
         <button class="primary-button confirm-razorpay-link" type="button">Done</button>
@@ -1321,6 +1641,14 @@ const modal = (title, fields, onSubmit) => {
                 </label>
               `;
             }
+            if (field.type === "textarea") {
+              return `
+                <label>
+                  ${field.label}
+                  <textarea name="${field.name}" rows="${field.rows || 5}" ${field.required ? "required" : ""}>${field.value || ""}</textarea>
+                </label>
+              `;
+            }
             return `
               <label>
                 ${field.label}
@@ -1380,11 +1708,9 @@ gmailLoginButton.addEventListener("click", async () => {
 
 vendorSignupOpenButton.addEventListener("click", async () => {
   try {
-    syncSessionTimeoutControls();
     const authUser = await api.gmailLogin({
       email: "vendor@gmail.com",
-      role: "Vendor",
-      timeoutMinutes: selectedSessionTimeoutMinutes()
+      role: "Vendor"
     });
     roleSelect.value = authUser.role;
     setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
@@ -1417,11 +1743,14 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     board: formData.get("board"),
     type: formData.get("type"),
     city: "Bengaluru",
-    contact: formData.get("billingEmail") || "admin@school.edu",
+    contact: String(formData.get("billingEmail") || "admin@school.edu").trim().toLowerCase(),
     earlyYears: event.currentTarget.querySelector('input[type="checkbox"]').checked
   };
   const amount = Math.max(1, Number(formData.get("amount") || 1));
   try {
+    if (!payload.contact.includes("@")) {
+      throw new Error("Use the school admin's real business email address.");
+    }
     paymentRescueButton.classList.remove("hidden");
     formStatus.textContent = `Creating membership payment request for ${payload.name}...`;
     const order = await api.createRazorpayOrder({
@@ -1462,7 +1791,7 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
         })();
 
     if (payment.pending) {
-      formStatus.textContent = `Payment link sent to ${payload.contact}. You will get a notification when Razorpay confirms ${payload.name}'s payment.`;
+      formStatus.textContent = `Payment link sent to ${payload.contact}. The same email is now invited as School Admin and will unlock after payment is marked received.`;
       showToast(`Payment link emailed to ${payload.contact}.`);
       await refresh();
       setView("schoolDashboard");
@@ -1477,7 +1806,7 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
       gatewayOrderId: payment.razorpay_order_id
     });
     formStatus.textContent =
-      `${payload.name} membership payment recorded. School dashboard unlocked and invoice generated.`;
+      `${payload.name} membership payment recorded. ${payload.contact} can now sign in as School Admin and access only this school.`;
     await refresh();
     setView("schoolDashboard");
   } catch (error) {
@@ -1621,6 +1950,7 @@ const openStudentModal = () => {
     "Add student user",
     [
       { label: "Student name", name: "name", required: true },
+      { label: "Student email for login", name: "email", type: "email", required: true },
       { label: "Grade", name: "grade", type: "select", options: ["Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"] },
       { label: "Age", name: "age", type: "number", value: "13", required: true },
       { label: "Guardian email", name: "guardianEmail", type: "email", required: true }
@@ -1628,9 +1958,10 @@ const openStudentModal = () => {
     async (payload) => {
       await api.create("students", {
         ...payload,
+        email: String(payload.email || "").trim().toLowerCase(),
         schoolId: state.schools[0]?.id
       });
-      showToast("Student invitation created with age-gated access.");
+      showToast(`Student login invited for ${payload.email}.`);
     }
   );
 };
@@ -1650,32 +1981,296 @@ document.querySelectorAll(".filter-chip").forEach((button) => {
 librarySearch.addEventListener("input", renderLibrary);
 vendorCategory.addEventListener("change", renderVendors);
 
+const openVendorProductModal = () => {
+  modal(
+    "Upload product and pricing",
+    [
+      { label: "Product name", name: "name", required: true },
+      { label: "Category", name: "category", type: "select", options: ["Uniforms", "Books & Stationery", "EdTech", "Furniture & Fixtures", "Transport", "Sports Equipment"] },
+      { label: "Price", name: "price", type: "number", value: "999", required: true },
+      { label: "Stock", name: "stock", type: "number", value: "100" },
+      { label: "Audience", name: "audience", type: "select", options: ["Students", "Teachers", "Schools", "All members"] },
+      { label: "Delivery", name: "delivery", type: "select", options: ["Standard delivery", "Express delivery", "Digital delivery", "School pickup"] },
+      { label: "Image URL", name: "imageUrl", type: "url", value: "" },
+      { label: "Description", name: "description", type: "textarea", value: "Describe what schools, teachers, or students will receive." }
+    ],
+    async (payload) => {
+      await api.create("vendor-products", payload);
+      showToast("Product published to marketplace.");
+      await refresh();
+      setView("vendors");
+    }
+  );
+};
+
+const openCartModal = () => {
+  const cartProducts = marketCart.map((cartItem) => {
+    const product = (state.vendorProducts || []).find((item) => item.id === cartItem.productId);
+    return product ? { ...product, quantity: cartItem.quantity } : null;
+  }).filter(Boolean);
+  const total = cartProducts.reduce((sum, item) => sum + Number(item.price || 0) * item.quantity, 0);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Marketplace checkout</p>
+          <h2>Your cart</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      <div class="compact-list">
+        ${cartProducts.length ? cartProducts.map((item) => `
+          <article>
+            <strong>${item.name}</strong>
+            <span>${item.quantity} x ${money(item.price)} = ${money(item.quantity * item.price)}</span>
+          </article>
+        `).join("") : `<article><strong>Cart is empty</strong><span>Add products before checkout.</span></article>`}
+      </div>
+      <div class="invoice-preview">
+        <dl><div><dt>Total</dt><dd>${money(total)}</dd></div></dl>
+      </div>
+      <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Place order</button>
+    </div>
+  `;
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", async (event) => {
+    if (event.target === overlay) overlay.remove();
+    if (event.target.closest(".checkout-cart")) {
+      const order = await api.create("market-orders", {
+        items: marketCart
+      });
+      marketCart = [];
+      marketTab = "orders";
+      overlay.remove();
+      showToast(`Order placed: ${order.id}`);
+      await refresh();
+      setView("vendors");
+    }
+  });
+  document.body.append(overlay);
+};
+
+vendorProductButton.addEventListener("click", openVendorProductModal);
+marketCartButton.addEventListener("click", openCartModal);
+
+document.querySelector("#vendors").addEventListener("click", async (event) => {
+  const tab = event.target.closest(".market-tab");
+  const addToCart = event.target.closest(".add-to-cart");
+  const approve = event.target.closest(".approve-vendor");
+  const sellerProducts = event.target.closest(".view-seller-products");
+  const statusButton = event.target.closest(".advance-order-status");
+  if (tab) {
+    marketTab = tab.dataset.marketTab;
+    renderVendors();
+  }
+  if (sellerProducts) {
+    marketTab = "products";
+    renderVendors();
+  }
+  if (addToCart) {
+    const item = marketCart.find((cartItem) => cartItem.productId === addToCart.dataset.id);
+    if (item) item.quantity += 1;
+    else marketCart.push({ productId: addToCart.dataset.id, quantity: 1 });
+    showToast("Added to cart.");
+    renderVendors();
+  }
+  if (approve) {
+    await api.post(`/api/vendors/${approve.dataset.id}/approve`);
+    showToast("Vendor approved and published to the directory.");
+    await refresh();
+  }
+  if (statusButton) {
+    await api.post(`/api/market-orders/${statusButton.dataset.id}/advance`);
+    showToast("Order status updated.");
+    await refresh();
+    setView("vendors");
+  }
+});
+
+const openContentPostModal = () => {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.innerHTML = `
+    <form class="modal-card social-compose-modal">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Content library</p>
+          <h2>Create community post</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      <div class="modal-fields form-builder-grid">
+        <label>Title<input name="title" type="text" required></label>
+        <label>Post type
+          <select name="type">
+            <option>Story</option>
+            <option>Short</option>
+            <option>Video</option>
+            <option>Article</option>
+            <option>Webinar</option>
+            <option>Recorded Workshop</option>
+            <option>Podcast</option>
+          </select>
+        </label>
+        <label>Author / speaker<input name="speaker" type="text" value="${currentSession()?.email || currentRole()}"></label>
+        <label>Category<input name="category" type="text" value="Community"></label>
+        <label>Media URL<input name="mediaUrl" type="url" placeholder="https://..."></label>
+        <label>Upload thumbnail / story image<input name="thumbnailFile" type="file" accept="image/*"></label>
+        <label>Tags<input name="tags" type="text" placeholder="leadership, student, sports"></label>
+        <label>Audience
+          <select name="audience">
+            <option value="all">School Admin, Teacher, Student</option>
+            <option value="staff">School Admin and Teacher</option>
+            <option value="students">Students</option>
+          </select>
+        </label>
+        <label>Minimum student age<input name="minAge" type="number" min="3" value="5"></label>
+        <label>Maximum student age<input name="maxAge" type="number" min="3" value="18"></label>
+        <label class="checkbox-line"><input name="restrictedToEarlyYears" type="checkbox"> Early Years only</label>
+        <label class="wide-field">Caption / article body<textarea name="body" rows="6" placeholder="Write the story, article, video caption, or update..."></textarea></label>
+      </div>
+      <button class="primary-button" type="submit">Publish to feed</button>
+    </form>
+  `;
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (clickEvent) => {
+    if (clickEvent.target === overlay) overlay.remove();
+  });
+  overlay.querySelector("form").addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const formData = new FormData(submitEvent.currentTarget);
+    const thumbnailFile = await fileToDataUrl(formData.get("thumbnailFile"));
+    const audienceMap = {
+      all: ["School Admin", "Teacher", "Student"],
+      staff: ["School Admin", "Teacher"],
+      students: ["Student"]
+    };
+    try {
+      await api.create("content", {
+        title: formData.get("title"),
+        type: formData.get("type"),
+        speaker: formData.get("speaker"),
+        category: formData.get("category"),
+        body: formData.get("body"),
+        mediaUrl: formData.get("mediaUrl"),
+        thumbnailUrl: thumbnailFile?.dataUrl || formData.get("mediaUrl"),
+        tags: String(formData.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean),
+        audience: audienceMap[formData.get("audience")] || audienceMap.all,
+        minAge: formData.get("minAge"),
+        maxAge: formData.get("maxAge"),
+        restrictedToEarlyYears: formData.get("restrictedToEarlyYears") === "on"
+      });
+      overlay.remove();
+      showToast("Post published to the Content Library feed.");
+      await refresh();
+      setView("library");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  document.body.append(overlay);
+};
+
+contentPostButton.addEventListener("click", openContentPostModal);
+
+const openLeaderThreadModal = () => {
+  modal(
+    "Start leader discussion",
+    [
+      { label: "Thread title", name: "title", required: true },
+      { label: "Forum date", name: "forumDate", type: "date" },
+      { label: "Discussion prompt", name: "prompt", type: "textarea", value: "What should Yarra school leaders discuss or decide together?" },
+      { label: "Initial key takeaway", name: "takeaway", type: "textarea", value: "" }
+    ],
+    async (payload) => {
+      await api.create("leadership-threads", payload);
+      showToast("Leadership thread started.");
+      await refresh();
+      setView("leadership");
+    }
+  );
+};
+
+const addLeaderTakeaway = async (threadId = null) => {
+  const threads = state.leadershipThreads || [];
+  const targetThreadId = threadId || threads[0]?.id;
+  if (!targetThreadId) {
+    openLeaderThreadModal();
+    return;
+  }
+  const text = window.prompt("Add a key takeaway");
+  if (!text?.trim()) return;
+  await api.post(`/api/leadership-threads/${targetThreadId}/takeaway`, { text: text.trim() });
+  showToast("Leadership takeaway added.");
+  await refresh();
+  setView("leadership");
+};
+
+leaderThreadButton.addEventListener("click", openLeaderThreadModal);
+leaderTakeawayButton.addEventListener("click", () => addLeaderTakeaway());
+
+document.querySelector("#leadershipThreads").addEventListener("click", async (event) => {
+  const replyButton = event.target.closest(".reply-leader-thread");
+  const takeawayButton = event.target.closest(".add-thread-takeaway");
+  if (replyButton) {
+    const text = window.prompt("Reply to this leader thread");
+    if (!text?.trim()) return;
+    await api.post(`/api/leadership-threads/${replyButton.dataset.id}/reply`, { text: text.trim() });
+    showToast("Reply added.");
+    await refresh();
+    setView("leadership");
+  }
+  if (takeawayButton) {
+    await addLeaderTakeaway(takeawayButton.dataset.id);
+  }
+});
+
+document.querySelector("#libraryGrid").addEventListener("click", async (event) => {
+  const likeButton = event.target.closest(".content-like");
+  const saveButton = event.target.closest(".content-save");
+  const commentButton = event.target.closest(".content-comment");
+  if (likeButton) {
+    await api.post(`/api/content/${likeButton.dataset.id}/like`);
+    await refresh();
+    setView("library");
+  }
+  if (saveButton) {
+    await api.post(`/api/content/${saveButton.dataset.id}/save`);
+    await refresh();
+    setView("library");
+  }
+  if (commentButton) {
+    const text = window.prompt("Write a comment");
+    if (!text?.trim()) return;
+    await api.post(`/api/content/${commentButton.dataset.id}/comment`, { text: text.trim() });
+    await refresh();
+    setView("library");
+  }
+});
+
+document.querySelector("#storyStrip").addEventListener("click", (event) => {
+  const storyButton = event.target.closest(".open-content");
+  if (!storyButton) return;
+  libraryFilter = "Story";
+  document.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.toggle("is-active", chip.dataset.filter === "Story"));
+  renderLibrary();
+  showToast("Showing stories feed.");
+});
+
 roleSelect.addEventListener("change", async () => {
   try {
     closeTutorial();
     const authUser = await api.updateSessionRole(roleSelect.value);
     setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
+    roleSelect.value = authUser.role;
     await refresh();
     showToast(`${roleSelect.value} permissions applied to this secure session.`);
   } catch (error) {
+    roleSelect.value = currentRole();
     showToast(error.message);
   }
-});
-
-[loginSessionTimeout, sessionTimeoutSelect].forEach((control) => {
-  control?.addEventListener("change", async () => {
-    const value = Number(control.value || defaultTimeoutMinutes);
-    syncSessionTimeoutControls(value);
-    if (currentSession()?.id) {
-      await extendSecureSession({ notify: true });
-    }
-  });
-});
-
-extendSessionButton?.addEventListener("click", () => extendSecureSession({ notify: true }));
-
-["click", "keydown", "pointerdown", "touchstart"].forEach((eventName) => {
-  window.addEventListener(eventName, recordSessionActivity, { passive: true });
 });
 
 notificationButton.addEventListener("click", async () => {
@@ -1688,23 +2283,412 @@ notificationButton.addEventListener("click", async () => {
   await refresh();
 });
 
-document.querySelector("#eventButton").addEventListener("click", () => {
-  modal(
-    "Create event",
-    [
-      { label: "Title", name: "title", required: true },
-      { label: "Type", name: "type", type: "select", options: ["Leadership Conclave", "Workshop", "Competition", "Webinar"] },
-      { label: "Format", name: "format", type: "select", options: ["In-person", "Virtual", "Hybrid"] },
-      { label: "Date", name: "date", type: "date", required: true },
-      { label: "Host", name: "host", value: "Yaara Consortium" },
-      { label: "Capacity", name: "capacity", type: "number", value: "100" },
-      { label: "Paid entry", name: "paid", type: "checkbox" }
-    ],
-    async (payload) => {
-      await api.create("events", payload);
-      showToast("Event created and registration tracking is live.");
+const questionEditorTemplate = (question, index) => `
+  <article class="form-builder-question" data-index="${index}">
+    <div class="question-toolbar">
+      <strong>Question ${index + 1}</strong>
+      <button class="icon-button remove-question" type="button" aria-label="Remove question">x</button>
+    </div>
+    <label>
+      Question text
+      <input name="questionLabel" type="text" value="${escapeAttribute(question.label)}" required>
+    </label>
+    <div class="form-builder-row">
+      <label>
+        Answer type
+        <select name="questionType">
+          ${eventQuestionTypes.map((type) => `<option value="${type.value}" ${type.value === question.type ? "selected" : ""}>${type.label}</option>`).join("")}
+        </select>
+      </label>
+      <label class="checkbox-line">
+        <input name="questionRequired" type="checkbox" ${question.required ? "checked" : ""}>
+        Required
+      </label>
+    </div>
+    <label class="choice-options ${["multiple", "checkboxes", "dropdown"].includes(question.type) ? "" : "hidden"}">
+      Options, one per line
+      <textarea name="questionOptions" rows="3">${escapeAttribute((question.options || []).join("\n"))}</textarea>
+    </label>
+    <label class="file-options ${question.type === "file" ? "" : "hidden"}">
+      Allowed files
+      <select name="questionAccept">
+        <option value="image/*,.pdf,.doc,.docx" ${question.accept === "image/*,.pdf,.doc,.docx" ? "selected" : ""}>Images, PDF, Word docs</option>
+        <option value="image/*" ${question.accept === "image/*" ? "selected" : ""}>Images only</option>
+        <option value=".pdf,.doc,.docx" ${question.accept === ".pdf,.doc,.docx" ? "selected" : ""}>Documents only</option>
+      </select>
+    </label>
+  </article>
+`;
+
+const openEventBuilderModal = () => {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  let questions = defaultEventQuestionFields.map(normalizeEventQuestion);
+  const renderQuestions = () => {
+    overlay.querySelector(".form-builder-questions").innerHTML = questions.map(questionEditorTemplate).join("");
+  };
+  overlay.innerHTML = `
+    <form class="modal-card form-builder-modal">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">School Admin event setup</p>
+          <h2>Create event and registration form</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      <div class="form-builder-section">
+        <p class="eyebrow">Event details</p>
+        <div class="modal-fields form-builder-grid">
+          <label>Title<input name="title" type="text" required></label>
+          <label>Type<select name="type"><option>Leadership Conclave</option><option>Workshop</option><option>Competition</option><option>Webinar</option></select></label>
+          <label>Visibility<select name="scope"><option>Intra school</option><option>Inter school</option></select></label>
+          <label>Format<select name="format"><option>In-person</option><option>Virtual</option><option>Hybrid</option></select></label>
+          <label>Date<input name="date" type="date" required></label>
+          <label>Registration deadline<input name="registrationDeadline" type="date"></label>
+          <label>Start time<input name="startTime" type="time"></label>
+          <label>End time<input name="endTime" type="time"></label>
+          <label>Venue / link<input name="venue" type="text" value="School campus"></label>
+          <label>Capacity<input name="capacity" type="number" min="1" value="100"></label>
+          <label>Coordinator name<input name="coordinatorName" type="text"></label>
+          <label>Coordinator email<input name="coordinatorEmail" type="email"></label>
+          <label>Eligibility<input name="eligibility" type="text" value="Open to eligible member-school students"></label>
+          <label>Registration fee<input name="fee" type="number" min="0" value="0"></label>
+          <label class="wide-field">Form header image<input name="formHeaderImage" type="file" accept="image/*"></label>
+          <label class="checkbox-line"><input name="paid" type="checkbox"> Paid entry</label>
+          <label class="wide-field">Event description<textarea name="description" rows="4">Briefly describe the event, schedule, expectations, and materials required.</textarea></label>
+        </div>
+      </div>
+      <div class="form-builder-section">
+        <div class="form-builder-header">
+          <div>
+            <p class="eyebrow">Registration form</p>
+            <h3>Questions students must complete</h3>
+          </div>
+          <div class="form-builder-actions">
+            <button class="ghost-button add-question" type="button" data-type="short">Short answer</button>
+            <button class="ghost-button add-question" type="button" data-type="multiple">Choice</button>
+            <button class="ghost-button add-question" type="button" data-type="file">File upload</button>
+          </div>
+        </div>
+        <div class="form-builder-questions"></div>
+      </div>
+      <button class="primary-button" type="submit">Publish event form</button>
+    </form>
+  `;
+  renderQuestions();
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (clickEvent) => {
+    const addButton = clickEvent.target.closest(".add-question");
+    const removeButton = clickEvent.target.closest(".remove-question");
+    if (clickEvent.target === overlay) overlay.remove();
+    if (addButton) {
+      const type = addButton.dataset.type;
+      questions.push(normalizeEventQuestion({
+        label: type === "file" ? "Upload supporting file" : "New question",
+        type,
+        options: type === "multiple" ? ["Option 1", "Option 2"] : [],
+        accept: type === "file" ? "image/*,.pdf,.doc,.docx" : "",
+        required: true
+      }, questions.length));
+      renderQuestions();
     }
-  );
+    if (removeButton) {
+      const questionCard = removeButton.closest(".form-builder-question");
+      questions.splice(Number(questionCard.dataset.index), 1);
+      renderQuestions();
+    }
+  });
+  overlay.addEventListener("change", (changeEvent) => {
+    const typeSelect = changeEvent.target.closest('select[name="questionType"]');
+    if (!typeSelect) return;
+    const questionCard = typeSelect.closest(".form-builder-question");
+    questionCard.querySelector(".choice-options").classList.toggle("hidden", !["multiple", "checkboxes", "dropdown"].includes(typeSelect.value));
+    questionCard.querySelector(".file-options").classList.toggle("hidden", typeSelect.value !== "file");
+  });
+  overlay.querySelector("form").addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const formData = new FormData(submitEvent.currentTarget);
+    const registrationQuestions = [...overlay.querySelectorAll(".form-builder-question")].map((questionCard, index) => {
+      const type = questionCard.querySelector('[name="questionType"]').value;
+      return normalizeEventQuestion({
+        id: `q-${Date.now()}-${index}`,
+        label: questionCard.querySelector('[name="questionLabel"]').value.trim(),
+        type,
+        required: questionCard.querySelector('[name="questionRequired"]').checked,
+        options: questionCard.querySelector('[name="questionOptions"]').value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+        accept: questionCard.querySelector('[name="questionAccept"]').value
+      }, index);
+    }).filter((question) => question.label);
+    const formHeaderImage = await fileToDataUrl(formData.get("formHeaderImage"));
+    try {
+      await api.create("events", {
+        title: formData.get("title"),
+        type: formData.get("type"),
+        scope: formData.get("scope"),
+        format: formData.get("format"),
+        date: formData.get("date"),
+        startTime: formData.get("startTime"),
+        endTime: formData.get("endTime"),
+        host: state.schools[0]?.name || "Yaara Consortium",
+        venue: formData.get("venue"),
+        capacity: formData.get("capacity"),
+        fee: formData.get("fee"),
+        eligibility: formData.get("eligibility"),
+        registrationDeadline: formData.get("registrationDeadline"),
+        coordinatorName: formData.get("coordinatorName"),
+        coordinatorEmail: formData.get("coordinatorEmail"),
+        description: formData.get("description"),
+        paid: formData.get("paid") === "on",
+        formHeaderImage,
+        registrationQuestions
+      });
+      overlay.remove();
+      showToast("Event form published. Students will complete it before registration.");
+      await refresh();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  document.body.append(overlay);
+};
+
+document.querySelector("#eventButton").addEventListener("click", openEventBuilderModal);
+
+const openEventRegistrationsModal = (eventId) => {
+  const event = state.events.find((item) => item.id === eventId);
+  const registrations = (state.eventRegistrations || []).filter((item) => item.eventId === eventId);
+  const questions = eventQuestionsFor(event);
+  const confirmed = registrations.filter((item) => item.status === "Confirmed").length;
+  const pending = registrations.filter((item) => item.status === "Payment pending").length;
+  const cancelled = registrations.filter((item) => item.status === "Cancelled").length;
+  const answerValue = (registration, question) => {
+    const value = registration.answers?.[question.label];
+    return Array.isArray(value) ? value.join("; ") : value || "";
+  };
+  const exportRows = () => {
+    const headers = ["Student", "Status", "Payment", "Files", ...questions.map((question) => question.label)];
+    const rows = registrations.map((registration) => [
+      registration.studentName,
+      registration.status,
+      registration.paymentStatus || "Not required",
+      (registration.files || []).map((file) => file.name).join("; "),
+      ...questions.map((question) => answerValue(registration, question))
+    ]);
+    return [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+  };
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.innerHTML = `
+    <div class="modal-card responses-modal">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Form responses</p>
+          <h2>${event?.title || "Event"} registrations</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      ${event?.formHeaderImage?.dataUrl ? `<img class="form-header-preview" src="${event.formHeaderImage.dataUrl}" alt="${escapeAttribute(event.title)} form header">` : ""}
+      <div class="response-summary">
+        <article><span>Total</span><strong>${registrations.length}</strong></article>
+        <article><span>Confirmed</span><strong>${confirmed}</strong></article>
+        <article><span>Payment pending</span><strong>${pending}</strong></article>
+        <article><span>Cancelled</span><strong>${cancelled}</strong></article>
+      </div>
+      <div class="response-actions">
+        <button class="primary-button export-responses" type="button">Download CSV / open in Sheets</button>
+      </div>
+      <div class="table-wrap">
+        <table class="responses-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Status</th>
+              <th>Payment</th>
+              <th>Files</th>
+              ${questions.map((question) => `<th>${escapeAttribute(question.label)}</th>`).join("")}
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${registrations.length ? registrations.map((registration) => `
+              <tr>
+                <td>${registration.studentName}</td>
+                <td><span class="status-pill">${registration.status}</span></td>
+                <td>${registration.paymentStatus || "Not required"}</td>
+                <td>${registration.files?.length ? registration.files.map((file) => `<span class="file-chip">${escapeAttribute(file.name)}</span>`).join("") : "No files"}</td>
+                ${questions.map((question) => `<td>${escapeAttribute(answerValue(registration, question))}</td>`).join("")}
+                <td>
+                  ${registration.status === "Payment pending" ? `<button class="ghost-button mark-event-paid" type="button" data-id="${registration.id}">Mark paid</button>` : ""}
+                  ${registration.status === "Payment pending" ? `<button class="ghost-button cancel-event-registration" type="button" data-id="${registration.id}">Cancel unpaid</button>` : ""}
+                  ${registration.status !== "Cancelled" && registration.status !== "Payment pending" ? `<button class="ghost-button cancel-event-registration" type="button" data-id="${registration.id}">Cancel</button>` : ""}
+                </td>
+              </tr>
+            `).join("") : `<tr><td colspan="${5 + questions.length}">No registrations yet.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", async (eventClick) => {
+    const markPaid = eventClick.target.closest(".mark-event-paid");
+    const cancelRegistration = eventClick.target.closest(".cancel-event-registration");
+    const exportResponses = eventClick.target.closest(".export-responses");
+    if (exportResponses) {
+      const blob = new Blob([exportRows()], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${(event?.title || "event").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-responses.csv`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      showToast("Responses CSV downloaded. Open it in Excel or Google Sheets.");
+    }
+    if (markPaid) {
+      await api.post(`/api/event-registrations/${markPaid.dataset.id}/mark-paid`);
+      overlay.remove();
+      showToast("Paid registration confirmed and seat counted.");
+      await refresh();
+    }
+    if (cancelRegistration) {
+      await api.post(`/api/event-registrations/${cancelRegistration.dataset.id}/cancel`);
+      overlay.remove();
+      showToast("Registration cancelled.");
+      await refresh();
+    }
+  });
+  document.body.append(overlay);
+};
+
+const studentQuestionInput = (question, index) => {
+  const required = question.required ? "required" : "";
+  if (question.type === "paragraph") {
+    return `<textarea name="q${index}" rows="4" ${required}></textarea>`;
+  }
+  if (question.type === "multiple") {
+    return `
+      <div class="choice-list">
+        ${(question.options?.length ? question.options : ["Yes", "No"]).map((option) => `
+          <label class="checkbox-line"><input name="q${index}" type="radio" value="${escapeAttribute(option)}" ${required}> ${escapeAttribute(option)}</label>
+        `).join("")}
+      </div>
+    `;
+  }
+  if (question.type === "checkboxes") {
+    return `
+      <div class="choice-list">
+        ${(question.options?.length ? question.options : ["I agree"]).map((option) => `
+          <label class="checkbox-line"><input name="q${index}" type="checkbox" value="${escapeAttribute(option)}"> ${escapeAttribute(option)}</label>
+        `).join("")}
+      </div>
+    `;
+  }
+  if (question.type === "dropdown") {
+    return `
+      <select name="q${index}" ${required}>
+        <option value="">Select an option</option>
+        ${(question.options || []).map((option) => `<option value="${escapeAttribute(option)}">${escapeAttribute(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+  if (question.type === "file") {
+    return `<input name="q${index}" type="file" accept="${escapeAttribute(question.accept || "image/*,.pdf,.doc,.docx")}" ${required}>`;
+  }
+  return `<input name="q${index}" type="text" ${required}>`;
+};
+
+const openStudentEventRegistrationForm = (eventItem) => {
+  const student = state.students[0];
+  const questions = eventQuestionsFor(eventItem);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.innerHTML = `
+    <form class="modal-card">
+      <div class="modal-heading">
+        <h2>${eventItem.title}</h2>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      ${eventItem.formHeaderImage?.dataUrl ? `<img class="form-header-preview" src="${eventItem.formHeaderImage.dataUrl}" alt="${escapeAttribute(eventItem.title)} form header">` : ""}
+      <p class="panel-copy">${eventItem.description || "Complete the registration form before submitting."}</p>
+      <div class="modal-fields">
+        <label>
+          Student
+          <input name="studentName" type="text" value="${student?.name || ""}" readonly>
+        </label>
+        <label>
+          School
+          <input name="schoolName" type="text" value="${state.schools[0]?.name || ""}" readonly>
+        </label>
+        ${questions.map((question, index) => `
+          <label class="student-form-question">
+            ${escapeAttribute(question.label)}${question.required ? " *" : ""}
+            ${studentQuestionInput(question, index)}
+          </label>
+        `).join("")}
+      </div>
+      <button class="primary-button" type="submit">${eventItem.paid ? `Submit and continue to payment (${money(eventItem.fee || 0)})` : "Submit registration"}</button>
+    </form>
+  `;
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (clickEvent) => {
+    if (clickEvent.target === overlay) overlay.remove();
+  });
+  overlay.querySelector("form").addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const formData = new FormData(submitEvent.currentTarget);
+    const answers = {};
+    const files = [];
+    questions.forEach((question, index) => {
+      if (question.type === "file") {
+        const file = formData.get(`q${index}`);
+        if (file?.name) {
+          files.push({
+            question: question.label,
+            name: file.name,
+            size: file.size,
+            type: file.type || "unknown"
+          });
+          answers[question.label] = file.name;
+        } else {
+          answers[question.label] = "";
+        }
+        return;
+      }
+      if (question.type === "checkboxes") {
+        answers[question.label] = formData.getAll(`q${index}`);
+        return;
+      }
+      answers[question.label] = formData.get(`q${index}`) || "";
+    });
+    try {
+      const registration = await api.create("event-registrations", {
+        eventId: eventItem.id,
+        answers,
+        files
+      });
+      overlay.remove();
+      showToast(registration.status === "Payment pending" ? "Form submitted. Payment pending before seat confirmation." : "Registration confirmed.");
+      await refresh();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  document.body.append(overlay);
+};
+
+document.querySelector("#eventsGrid").addEventListener("click", async (event) => {
+  const registerButton = event.target.closest(".register-event");
+  const manageButton = event.target.closest(".manage-event");
+  if (registerButton) {
+    const eventItem = state.events.find((item) => item.id === registerButton.dataset.id);
+    if (eventItem) openStudentEventRegistrationForm(eventItem);
+  }
+  if (manageButton) {
+    openEventRegistrationsModal(manageButton.dataset.id);
+  }
 });
 
 document.querySelector("#exchangeButton").addEventListener("click", () => {
@@ -1722,14 +2706,6 @@ document.querySelector("#exchangeButton").addEventListener("click", () => {
       showToast("Exchange slot posted with Open status.");
     }
   );
-});
-
-document.querySelector("#vendorGrid").addEventListener("click", async (event) => {
-  const button = event.target.closest(".approve-vendor");
-  if (!button) return;
-  await api.post(`/api/vendors/${button.dataset.id}/approve`);
-  showToast("Vendor approved and published to the directory.");
-  await refresh();
 });
 
 document.querySelector("#vendorPreviewButton").addEventListener("click", () => {
@@ -1796,7 +2772,7 @@ if (getSessionValue(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
     roleSelect.value = currentRole();
     await refresh();
   } catch {
-    expireSession("Your secure session expired. Please sign in again.", { silent: true });
+    setAuthenticated(false);
   } finally {
     suppressSessionExpiryToast = false;
   }
