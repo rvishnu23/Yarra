@@ -400,22 +400,6 @@
     }
   },
   {
-    "hashedToken": "0846a03ec513400b4dc606ab8b5ccab716d2d4d118eee838fcd209ff7736a21d",
-    "session": {
-      "email": "admin@gmail.com",
-      "name": "admin",
-      "provider": "gmail-dev",
-      "role": "School Admin",
-      "userId": "user-admin-gmail-com",
-      "schoolId": "school-greenfield",
-      "studentId": null,
-      "teacherId": null,
-      "vendorId": "vendor-learngrid",
-      "createdAt": "2026-05-24T17:07:09.748Z",
-      "lastSeenAt": "2026-05-25T08:21:21.710Z"
-    }
-  },
-  {
     "hashedToken": "3426eb19a8efd9ee625f8bd4b87e09141ffc5d3320b6752b209d729e6af7f133",
     "session": {
       "email": "vendor@gmail.com",
@@ -477,6 +461,38 @@
       "vendorId": "vendor-learngrid",
       "createdAt": "2026-05-24T17:26:36.178Z",
       "lastSeenAt": "2026-05-24T17:26:40.676Z"
+    }
+  },
+  {
+    "hashedToken": "f3e98f6d30755395440629315ba77b7394b65f01c3e3f8eb0e7c7f987a82988a",
+    "session": {
+      "email": "admin@gmail.com",
+      "name": "admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-admin-gmail-com",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-25T10:45:32.053Z",
+      "lastSeenAt": "2026-05-25T10:45:36.595Z"
+    }
+  },
+  {
+    "hashedToken": "0753acb6329b0b66f60f45704e08a3b4d3845d304025ae4bb18357693acdba25",
+    "session": {
+      "email": "admin@gmail.com",
+      "name": "admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-admin-gmail-com",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-25T10:45:35.564Z",
+      "lastSeenAt": "2026-05-25T10:46:23.898Z"
     }
   }
 ]

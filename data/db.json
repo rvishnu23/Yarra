@@ -591,6 +591,8 @@
     }
   ],
   "promotions": [],
+  "teacherResources": [],
+  "reviewCycles": [],
   "notifications": [
     {
       "id": "note-blocked-school-admin-invite-superadmin-mpjimva5",

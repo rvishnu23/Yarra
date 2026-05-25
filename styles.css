@@ -118,10 +118,11 @@ img {
   position: sticky;
   top: 0;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding: 24px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  overflow: hidden;
+  padding: 20px;
   background: var(--nav);
   color: #f8faf7;
 }
@@ -153,18 +154,33 @@ img {
 
 .module-nav {
   display: grid;
-  gap: 6px;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-color: rgba(255, 255, 255, 0.42) transparent;
+}
+
+.module-nav::-webkit-scrollbar {
+  width: 8px;
+}
+
+.module-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .nav-item {
   width: 100%;
-  min-height: 42px;
+  min-height: 36px;
   border: 0;
   border-radius: 8px;
   padding: 0 12px;
   background: transparent;
   color: rgba(248, 250, 247, 0.76);
   text-align: left;
+  font-size: 0.94rem;
   font-weight: 800;
 }
 
@@ -175,11 +191,12 @@ img {
 }
 
 .membership-card {
-  margin-top: auto;
+  min-height: 0;
   padding: 16px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
+  color: #f8faf7;
 }
 
 .membership-card p,
@@ -682,6 +699,12 @@ main {
 
 .card-grid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.three-column-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .story-strip {
@@ -1858,10 +1881,12 @@ th {
   .sidebar {
     position: static;
     height: auto;
+    overflow: visible;
   }
 
   .module-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
   }
 
   .membership-card {
@@ -1870,6 +1895,7 @@ th {
 
   .metrics-grid,
   .card-grid.three,
+  .three-column-list,
   .market-grid,
   .kanban,
   .student-home-grid {
@@ -1897,6 +1923,7 @@ th {
   .market-grid,
   .metrics-grid,
   .card-grid.three,
+  .three-column-list,
   .kanban,
   .student-home-grid,
   .profile-layout,

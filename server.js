@@ -290,6 +290,37 @@ const seed = {
       clicks: 0
     }
   ],
+  teacherResources: [
+    {
+      id: "resource-pl-june",
+      schoolId: "school-greenfield",
+      title: "Inquiry-based assessment PL session",
+      type: "Upcoming PL Session",
+      presenter: "Isha Menon",
+      sessionDate: "2026-06-18",
+      sessionTime: "15:30",
+      duration: "90 min",
+      capacity: 40,
+      link: "https://meet.google.com/example",
+      uploadedBy: "admin@greenfield.edu",
+      createdAt: "2026-05-20"
+    }
+  ],
+  reviewCycles: [
+    {
+      id: "review-greenfield-2026",
+      schoolId: "school-greenfield",
+      title: "2026 School Improvement Review",
+      startDate: "2026-06-01",
+      endDate: "2026-11-30",
+      selfStudyStatus: "In Progress",
+      reviewVisitStatus: "Not Started",
+      sipStatus: "Not Started",
+      recommendationsStatus: "Not Started",
+      notes: "Use this cycle to track documents, review visits, SIP work, and recommendation closure.",
+      createdAt: "2026-05-20"
+    }
+  ],
   notifications: [
     {
       id: "note-renewal",
@@ -335,6 +366,8 @@ const emptyState = {
   exchanges: [],
   content: [],
   promotions: [],
+  teacherResources: [],
+  reviewCycles: [],
   notifications: [],
   payments: [],
   eventRegistrations: [],
@@ -1589,10 +1622,10 @@ function metricsForUser(db, user) {
 }
 
 const roleViews = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "library", "vendorSignup", "vendors", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "library", "vendors", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
-  Student: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
+  Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
@@ -1627,6 +1660,9 @@ function canWrite(user, resource, action = "") {
   if (resource === "events") return ["School Admin", "Teacher"].includes(user.role);
   if (resource === "event-registrations") return ["School Admin", "Teacher", "Student"].includes(user.role);
   if (resource === "leadership-threads") return ["Super Admin", "School Admin"].includes(user.role);
+  if (resource === "teacher-resources") return ["Super Admin", "School Admin", "Teacher"].includes(user.role);
+  if (resource === "review-cycles") return ["Super Admin", "School Admin", "Teacher"].includes(user.role);
+  if (resource === "profile") return ["Super Admin", "School Admin", "Teacher", "Student", "Vendor"].includes(user.role);
   if (resource === "vendor-products") return user.role === "Vendor";
   if (resource === "market-orders" && action === "advance") return user.role === "Vendor";
   if (resource === "market-orders") return ["School Admin", "Teacher", "Student"].includes(user.role);
@@ -1657,6 +1693,8 @@ function filteredState(db, user) {
       events: [],
       exchanges: [],
       content: [],
+      teacherResources: [],
+      reviewCycles: [],
       promotions: db.promotions.filter((item) => item.vendorId === vendor?.id),
       notifications: db.notifications.filter((item) => item.audience === "Vendor"),
       payments: [],
@@ -1696,6 +1734,8 @@ function filteredState(db, user) {
       events: visibleEventsForUser(db, { ...user, schoolId: student?.schoolId }),
       eventRegistrations: (db.eventRegistrations || []).filter((registration) => registration.studentId === student?.id),
       exchanges: db.exchanges.filter((exchange) => exchange.type === "Student"),
+      teacherResources: [],
+      reviewCycles: [],
       metrics: {
         activeSchools: 1,
         vendors: 0,
@@ -1727,6 +1767,8 @@ function filteredState(db, user) {
         return event?.schoolId === user.schoolId;
       }),
       exchanges: db.exchanges.filter((exchange) => !exchange.schoolId || exchange.schoolId === user.schoolId),
+      teacherResources: (db.teacherResources || []).filter((resource) => resource.schoolId === user.schoolId),
+      reviewCycles: (db.reviewCycles || []).filter((cycle) => cycle.schoolId === user.schoolId),
       content: db.content.filter((item) => (item.audience || ["School Admin", "Teacher"]).includes("Teacher"))
     };
   }
@@ -1744,7 +1786,9 @@ function filteredState(db, user) {
       eventRegistrations: (db.eventRegistrations || []).filter((registration) => {
         const event = db.events.find((item) => item.id === registration.eventId);
         return event?.schoolId === user.schoolId || event?.scope === "Inter school";
-      })
+      }),
+      teacherResources: (db.teacherResources || []).filter((resource) => resource.schoolId === user.schoolId),
+      reviewCycles: (db.reviewCycles || []).filter((cycle) => cycle.schoolId === user.schoolId)
     };
   }
 
@@ -2694,6 +2738,57 @@ async function handleApi(req, res, url) {
     await writeJson(dbPath, db);
     await audit("exchanges.create", req, user, { exchangeId: exchange.id, type: exchange.type });
     sendJson(res, 201, exchange);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "teacher-resources") {
+    if (!canWrite(user, "teacher-resources")) return deny(res);
+    const body = await readBody(req);
+    const resourceItem = {
+      id: createId("resource", body.title),
+      schoolId: user.role === "Super Admin" ? body.schoolId || db.schools[0]?.id || "" : user.schoolId,
+      title: body.title || "Teacher resource",
+      type: body.type || "Resource Document",
+      presenter: body.presenter || user.email || "",
+      sessionDate: body.sessionDate || "",
+      sessionTime: body.sessionTime || "",
+      duration: body.duration || "",
+      capacity: Number(body.capacity || 0),
+      link: body.link || "",
+      fileName: body.fileName || "",
+      notes: body.notes || "",
+      uploadedBy: user.email || user.role,
+      createdAt: new Date().toISOString()
+    };
+    db.teacherResources ||= [];
+    db.teacherResources.unshift(resourceItem);
+    await writeJson(dbPath, db);
+    await audit("teacher_resources.create", req, user, { resourceId: resourceItem.id, title: resourceItem.title });
+    sendJson(res, 201, resourceItem);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "review-cycles") {
+    if (!canWrite(user, "review-cycles")) return deny(res);
+    const body = await readBody(req);
+    const cycle = {
+      id: createId("review", body.title),
+      schoolId: user.role === "Super Admin" ? body.schoolId || db.schools[0]?.id || "" : user.schoolId,
+      title: body.title || "School improvement review",
+      startDate: body.startDate || "",
+      endDate: body.endDate || "",
+      selfStudyStatus: body.selfStudyStatus || "Not Started",
+      reviewVisitStatus: body.reviewVisitStatus || "Not Started",
+      sipStatus: body.sipStatus || "Not Started",
+      recommendationsStatus: body.recommendationsStatus || "Not Started",
+      notes: body.notes || "",
+      createdAt: new Date().toISOString()
+    };
+    db.reviewCycles ||= [];
+    db.reviewCycles.unshift(cycle);
+    await writeJson(dbPath, db);
+    await audit("review_cycles.create", req, user, { cycleId: cycle.id, title: cycle.title });
+    sendJson(res, 201, cycle);
     return;
   }
 

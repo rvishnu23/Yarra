@@ -69,9 +69,13 @@
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
           <button class="nav-item" type="button" data-view="leadership">Leadership Connect</button>
+          <button class="nav-item" type="button" data-view="myProfile">My profile</button>
+          <button class="nav-item" type="button" data-view="teachersHub">Teachers Hub</button>
+          <button class="nav-item" type="button" data-view="reviewCycle">Review cycle</button>
           <button class="nav-item" type="button" data-view="library">Content library</button>
           <button class="nav-item" type="button" data-view="vendorSignup">Vendor sign-up</button>
           <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
+          <button class="nav-item" type="button" data-view="schoolNetwork">School network</button>
           <button class="nav-item" type="button" data-view="profiles">School profiles</button>
         </nav>
 
@@ -393,6 +397,42 @@
             </div>
           </section>
 
+          <section class="view" id="myProfile" aria-label="My profile">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Member identity</p>
+                <h2>My profile</h2>
+                <p>Personal, academic, staff, and school context for the signed-in user.</p>
+              </div>
+              <button class="primary-button" id="profileEditButton" type="button">Update profile</button>
+            </div>
+            <div class="profile-layout" id="myProfileGrid"></div>
+          </section>
+
+          <section class="view" id="teachersHub" aria-label="Teachers Hub">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Staff workspace</p>
+                <h2>Teachers Hub</h2>
+                <p>Upcoming PL sessions, recordings, and staff-only resource documents.</p>
+              </div>
+              <button class="primary-button" id="teacherResourceButton" type="button">Add resource</button>
+            </div>
+            <div class="three-column-list" id="teacherResourceGrid"></div>
+          </section>
+
+          <section class="view" id="reviewCycle" aria-label="Review cycle">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">School improvement</p>
+                <h2>Review cycle</h2>
+                <p>Track self-study, review visits, SIP work, and recommendation closure.</p>
+              </div>
+              <button class="primary-button" id="reviewCycleButton" type="button">Create cycle</button>
+            </div>
+            <div class="card-grid" id="reviewCycleGrid"></div>
+          </section>
+
           <section class="view" id="library" aria-label="Content library">
             <div class="section-bar">
               <div>
@@ -588,6 +628,17 @@
                 <div class="compact-list" id="marketOrders"></div>
               </aside>
             </div>
+          </section>
+
+          <section class="view" id="schoolNetwork" aria-label="School network">
+            <div class="section-bar">
+              <div>
+                <p class="eyebrow">Consortium directory</p>
+                <h2>School network</h2>
+                <p>Public member-school profiles across Yarra. Editing remains restricted to each school.</p>
+              </div>
+            </div>
+            <div class="card-grid" id="schoolNetworkGrid"></div>
           </section>
 
           <section class="view" id="profiles" aria-label="School profiles">

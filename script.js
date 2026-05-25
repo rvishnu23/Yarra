@@ -185,10 +185,10 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "library", "vendorSignup", "vendors", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "library", "vendors", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
-  Student: ["dashboard", "events", "exchange", "library", "vendors", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
+  Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
@@ -256,6 +256,27 @@ const tutorialModuleDetails = {
     target: "#leadership .section-bar",
     actions: ["Read the monthly forum details.", "Use discussion prompts to guide leadership reflection.", "Add key takeaways after each forum.", "Start or reply to leader-only discussion threads."]
   },
+  myProfile: {
+    title: "My Profile",
+    goal: "Review and maintain personal, academic, staff, and school identity details.",
+    challenge: "Check how your role and school context shape what the platform shows you.",
+    target: "#myProfile .section-bar",
+    actions: ["Open My Profile.", "Review role, email, school, grade or designation.", "Use Update profile to add contact and context details."]
+  },
+  teachersHub: {
+    title: "Teachers Hub",
+    goal: "Keep staff resources, PL sessions, and recordings in one school-only workspace.",
+    challenge: "Add a staff resource and confirm it appears under the correct resource type.",
+    target: "#teachersHub .section-bar",
+    actions: ["Click Add resource.", "Choose Upcoming PL Session, Past Recording, or Resource Document.", "Add a link or file name so staff know where to access it."]
+  },
+  reviewCycle: {
+    title: "Review Cycle",
+    goal: "Track school improvement stages from self-study through recommendations.",
+    challenge: "Create a review cycle and inspect each stage status.",
+    target: "#reviewCycle .section-bar",
+    actions: ["Create cycle.", "Set start and end dates.", "Track self-study, review visit, SIP, and recommendations."]
+  },
   library: {
     title: "Content library",
     goal: "Search and filter workshops, podcasts, webinars, and articles.",
@@ -276,6 +297,13 @@ const tutorialModuleDetails = {
     challenge: "Use the category filter and find where approvals or promotions appear.",
     target: "#vendors .section-bar",
     actions: ["Use Category to filter vendors.", "Super Admin can approve pending vendors.", "Featured placements and promotions appear in marketplace campaigns."]
+  },
+  schoolNetwork: {
+    title: "School Network",
+    goal: "Browse the public member-school directory across Yarra.",
+    challenge: "Find active schools and compare board, city, and key offerings.",
+    target: "#schoolNetwork .section-bar",
+    actions: ["Open School Network.", "Review public member-school cards.", "Only each school's admin should edit its own profile."]
   },
   profiles: {
     title: "School profiles",
@@ -325,6 +353,9 @@ const notificationButton = document.querySelector("#notificationButton");
 const contentPostButton = document.querySelector("#contentPostButton");
 const leaderThreadButton = document.querySelector("#leaderThreadButton");
 const leaderTakeawayButton = document.querySelector("#leaderTakeawayButton");
+const profileEditButton = document.querySelector("#profileEditButton");
+const teacherResourceButton = document.querySelector("#teacherResourceButton");
+const reviewCycleButton = document.querySelector("#reviewCycleButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const invoicePanel = document.querySelector(".invoice-panel");
 const studentGrid = document.querySelector("#studentGrid");
@@ -1048,6 +1079,121 @@ const renderLeadership = () => {
     : `<article class="leader-thread"><h3>No leader threads yet</h3><p>Start the first principal discussion after your next forum.</p></article>`;
 };
 
+const signedInProfile = () => {
+  const session = currentSession() || {};
+  const role = currentRole();
+  const school = state.schools?.[0] || {};
+  const student = state.students?.[0] || {};
+  const teacher = state.teachers?.[0] || {};
+  const displayName =
+    session.name ||
+    student.name ||
+    teacher.name ||
+    (role === "Vendor" ? state.vendors?.[0]?.name : school.name) ||
+    "Yarra member";
+  return { session, role, school, student, teacher, displayName };
+};
+
+const renderMyProfile = () => {
+  const grid = document.querySelector("#myProfileGrid");
+  if (!grid) return;
+  const { session, role, school, student, teacher, displayName } = signedInProfile();
+  const details = [
+    ["Role", role],
+    ["Email", session.email || student.email || teacher.email || school.contact || "Not added"],
+    ["School", school.name || "Not linked yet"],
+    ["Grade / Designation", student.grade || teacher.designation || "Not added"],
+    ["Contact", student.guardianEmail || teacher.mobile || school.contact || "Not added"],
+    ["Access", (student.access || ["Yarra member"]).join(", ")]
+  ];
+  grid.innerHTML = `
+    <article class="school-profile">
+      <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
+      <div>
+        <p class="eyebrow">${role}</p>
+        <h3>${displayName}</h3>
+        <p>${role === "Student" ? "Student access is curated by the school admin and filtered by age." : "This profile controls the identity and school context used across Yarra."}</p>
+      </div>
+    </article>
+    <section class="panel">
+      <h3>Profile details</h3>
+      <div class="compact-list">
+        ${details.map(([label, value]) => `<article><strong>${label}</strong><span>${value}</span></article>`).join("")}
+      </div>
+    </section>
+  `;
+};
+
+const renderTeachersHub = () => {
+  const grid = document.querySelector("#teacherResourceGrid");
+  if (!grid) return;
+  const buckets = ["Upcoming PL Session", "Past Recording", "Resource Document"];
+  const resources = state.teacherResources || [];
+  teacherResourceButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
+  grid.innerHTML = buckets.map((bucket) => {
+    const items = resources.filter((resource) => resource.type === bucket);
+    return `
+      <section class="panel">
+        <p class="eyebrow">${bucket}</p>
+        <h3>${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "No items yet"}</h3>
+        <div class="compact-list">
+          ${items.length ? items.map((item) => `
+            <article>
+              <strong>${item.title}</strong>
+              <span>${item.presenter || item.uploadedBy || "Staff"}${item.sessionDate ? ` - ${item.sessionDate}` : ""}${item.link ? ` - ${item.link}` : ""}</span>
+            </article>
+          `).join("") : `<article><strong>Ready for your first upload</strong><span>Add sessions, recordings, documents, or staff links.</span></article>`}
+        </div>
+      </section>
+    `;
+  }).join("");
+};
+
+const renderReviewCycle = () => {
+  const grid = document.querySelector("#reviewCycleGrid");
+  if (!grid) return;
+  const cycles = state.reviewCycles || [];
+  reviewCycleButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
+  grid.innerHTML = cycles.length
+    ? cycles.map((cycle) => {
+        const stages = [
+          ["Self-study", cycle.selfStudyStatus],
+          ["Review visit", cycle.reviewVisitStatus],
+          ["SIP", cycle.sipStatus],
+          ["Recommendations", cycle.recommendationsStatus]
+        ];
+        return `
+          <article class="panel">
+            <p class="eyebrow">${cycle.startDate || "Start pending"} - ${cycle.endDate || "End pending"}</p>
+            <h3>${cycle.title}</h3>
+            <p>${cycle.notes || "Track review evidence, visits, improvement plans, and recommendation closure."}</p>
+            <div class="compact-list">
+              ${stages.map(([label, status]) => `<article><strong>${label}</strong><span>${status || "Not Started"}</span></article>`).join("")}
+            </div>
+          </article>
+        `;
+      }).join("")
+    : `<article class="panel"><h3>No review cycle yet</h3><p>Create the first school improvement cycle when the school is ready.</p></article>`;
+};
+
+const renderSchoolNetwork = () => {
+  const grid = document.querySelector("#schoolNetworkGrid");
+  if (!grid) return;
+  const schools = state.schools || [];
+  grid.innerHTML = schools.length
+    ? schools.map((school) => `
+        <article class="panel">
+          <p class="eyebrow">${school.board || "Board pending"} - ${school.city || "City pending"}</p>
+          <h3>${school.name}</h3>
+          <p>${school.type || "School type pending"} member profile. ${school.earlyYears ? "Early Years enabled." : "Early Years not enabled."}</p>
+          <div class="tag-list">
+            ${(school.achievements || ["Profile setup pending"]).map((item) => `<span>${item}</span>`).join("")}
+          </div>
+        </article>
+      `).join("")
+    : `<article class="panel"><h3>No schools yet</h3><p>Member-school cards appear here after onboarding and payment confirmation.</p></article>`;
+};
+
 const renderLibrary = () => {
   const query = librarySearch.value.trim().toLowerCase();
   const normalizedContent = (state.content || []).map((item) => ({
@@ -1371,8 +1517,12 @@ const renderAll = () => {
   renderEvents();
   renderExchange();
   renderLeadership();
+  renderMyProfile();
+  renderTeachersHub();
+  renderReviewCycle();
   renderLibrary();
   renderVendors();
+  renderSchoolNetwork();
   renderPayments();
   renderPaymentConfig();
   renderStudents();
@@ -1968,6 +2118,68 @@ const openStudentModal = () => {
 
 document.querySelector("#studentButton").addEventListener("click", openStudentModal);
 document.querySelector("#inviteStudentButton").addEventListener("click", openStudentModal);
+
+profileEditButton.addEventListener("click", () => {
+  const { role, school, student, teacher, displayName } = signedInProfile();
+  modal(
+    "Update profile",
+    [
+      { label: "Display name", name: "name", value: displayName, required: true },
+      { label: "Role", name: "role", value: role },
+      { label: "School", name: "school", value: school.name || "" },
+      { label: "Grade or designation", name: "designation", value: student.grade || teacher.designation || "" },
+      { label: "Mobile / guardian contact", name: "contact", value: student.guardianEmail || teacher.mobile || "" },
+      { label: "Profile notes", name: "notes", type: "textarea", value: "Add profile context, interests, languages, or responsibilities." }
+    ],
+    async () => {
+      showToast("Profile draft saved in this workspace. Full profile persistence will connect to user records next.");
+    }
+  );
+});
+
+teacherResourceButton.addEventListener("click", () => {
+  modal(
+    "Add Teachers Hub resource",
+    [
+      { label: "Title", name: "title", required: true },
+      { label: "Type", name: "type", type: "select", options: ["Upcoming PL Session", "Past Recording", "Resource Document"] },
+      { label: "Presenter", name: "presenter", value: currentSession()?.name || "" },
+      { label: "Session date", name: "sessionDate", type: "date" },
+      { label: "Session time", name: "sessionTime", type: "time" },
+      { label: "Duration", name: "duration", value: "60 min" },
+      { label: "Capacity", name: "capacity", type: "number", value: "40" },
+      { label: "Meeting / recording link", name: "link", type: "url" },
+      { label: "File name or document reference", name: "fileName" },
+      { label: "Notes", name: "notes", type: "textarea", value: "Add staff instructions or access notes." }
+    ],
+    async (payload) => {
+      await api.create("teacher-resources", payload);
+      showToast("Teachers Hub resource added.");
+      await refresh();
+    }
+  );
+});
+
+reviewCycleButton.addEventListener("click", () => {
+  modal(
+    "Create review cycle",
+    [
+      { label: "Cycle title", name: "title", value: "School improvement review", required: true },
+      { label: "Start date", name: "startDate", type: "date" },
+      { label: "End date", name: "endDate", type: "date" },
+      { label: "Self-study", name: "selfStudyStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
+      { label: "Review visit", name: "reviewVisitStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
+      { label: "SIP", name: "sipStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
+      { label: "Recommendations", name: "recommendationsStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
+      { label: "Notes", name: "notes", type: "textarea", value: "Add evidence, visit, SIP, or recommendation notes." }
+    ],
+    async (payload) => {
+      await api.create("review-cycles", payload);
+      showToast("Review cycle created.");
+      await refresh();
+    }
+  );
+});
 
 document.querySelectorAll(".filter-chip").forEach((button) => {
   button.addEventListener("click", () => {
