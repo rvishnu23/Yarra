@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: yarra-consortium
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: UPI_PAYEE_ID
+        value: vishnuaravindhr-1@okicici
+      - key: UPI_PAYEE_NAME
+        value: Yarra Education Group

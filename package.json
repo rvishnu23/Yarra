@@ -9,6 +9,9 @@
     "dev": "node server.js",
     "migrate": "node scripts/migrate.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.699.0",
     "google-auth-library": "^9.15.0",

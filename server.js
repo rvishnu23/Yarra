@@ -15,7 +15,7 @@ const dbPath = join(dataDir, "db.json");
 const auditLogPath = join(dataDir, "audit.log");
 const sessionStorePath = join(dataDir, "sessions.json");
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || (process.env.RENDER || process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
 const databaseUrl = process.env.DATABASE_URL || "";
 const usePostgres = Boolean(databaseUrl);
 const razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
