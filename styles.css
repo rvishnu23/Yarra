@@ -652,6 +652,20 @@ main {
   font-weight: 750;
 }
 
+.school-delete-panel {
+  grid-column: 1 / -1;
+}
+
+.school-delete-list article {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) minmax(280px, 2fr) auto;
+  align-items: center;
+}
+
+.delete-school-button {
+  border-color: rgba(184, 74, 74, 0.34);
+  color: var(--red);
+}
+
 .step-list {
   margin: 0;
   padding: 0;
@@ -1948,6 +1962,7 @@ th {
   .student-home-grid,
   .profile-layout,
   .school-profile,
+  .school-delete-list article,
   .sample-grid {
     grid-template-columns: 1fr;
   }

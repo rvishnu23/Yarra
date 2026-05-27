@@ -150,6 +150,13 @@ const api = {
     });
     return handleResponse(response, "Action failed");
   },
+  async delete(path) {
+    const response = await fetch(path, {
+      method: "DELETE",
+      headers: authHeaders(false)
+    });
+    return handleResponse(response, "Delete failed");
+  },
   async gmailLogin(payload) {
     const response = await fetch("/api/auth/gmail", {
       method: "POST",
@@ -885,6 +892,57 @@ const renderDashboard = () => {
 
 const schoolName = (id) => state.schools.find((school) => school.id === id)?.name || "Member school";
 
+const schoolDeletionSummary = (school) => {
+  const eventIds = (state.events || [])
+    .filter((event) => event.schoolId === school.id || event.host === school.name)
+    .map((event) => event.id);
+  return {
+    users: (state.users || []).filter((user) => user.schoolId === school.id).length,
+    students: (state.students || []).filter((student) => student.schoolId === school.id).length,
+    staff: (state.teachers || []).filter((teacher) => teacher.schoolId === school.id).length,
+    payments: (state.payments || []).filter((payment) => payment.schoolId === school.id).length,
+    events: eventIds.length,
+    registrations: (state.eventRegistrations || []).filter((registration) => registration.schoolId === school.id || eventIds.includes(registration.eventId)).length,
+    content: (state.content || []).filter((item) => item.schoolId === school.id).length,
+    exchanges: (state.exchanges || []).filter((exchange) => exchange.schoolId === school.id || exchange.fromSchool === school.name).length,
+    orders: (state.marketOrders || []).filter((order) => order.schoolId === school.id).length,
+    resources: (state.teacherResources || []).filter((resource) => resource.schoolId === school.id).length,
+    reviews: (state.reviewCycles || []).filter((cycle) => cycle.schoolId === school.id).length
+  };
+};
+
+const renderSchoolDeletePanel = () => {
+  const panel = document.querySelector(".school-delete-panel");
+  if (!panel) return;
+  if (currentRole() !== "Super Admin") {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  panel.hidden = false;
+  const schools = state.schools || [];
+  panel.innerHTML = `
+    <p class="eyebrow">Super Admin data control</p>
+    <h2>Delete school and linked data</h2>
+    <p class="panel-copy">Use this only for mistaken/test schools. The delete removes the school ID and linked local records.</p>
+    <div class="compact-list school-delete-list">
+      ${schools.length ? schools.map((school) => {
+        const counts = schoolDeletionSummary(school);
+        const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+        return `
+          <article>
+            <strong>${school.name}</strong>
+            <span>ID: ${school.id}</span>
+            <span>Admin mail: ${school.contact || "Not added"}</span>
+            <span>Linked records: ${total} (${Object.entries(counts).map(([key, value]) => `${key} ${value}`).join(", ")})</span>
+            <button class="ghost-button delete-school-button" type="button" data-id="${school.id}" data-name="${escapeAttribute(school.name)}">Delete school and data</button>
+          </article>
+        `;
+      }).join("") : `<article><strong>No schools</strong><span>There are no school records to delete.</span></article>`}
+    </div>
+  `;
+};
+
 const renderSchoolDashboard = () => {
   const school = state.schools[0];
   if (!school) {
@@ -892,6 +950,7 @@ const renderSchoolDashboard = () => {
     document.querySelector(".school-membership-panel").innerHTML = `<p class="eyebrow">Membership</p><h2>Not started</h2><p class="panel-copy">Membership details appear after onboarding.</p>`;
     document.querySelector(".school-events-panel").innerHTML = `<p class="eyebrow">Upcoming</p><h2>No events yet</h2>`;
     document.querySelector(".school-invoices-panel").innerHTML = `<p class="eyebrow">Finance</p><h2>No invoices yet</h2>`;
+    renderSchoolDeletePanel();
     return;
   }
   const schoolStudents = (state.students || []).filter((student) => student.schoolId === school.id);
@@ -977,7 +1036,30 @@ const renderSchoolDashboard = () => {
     showToast("Membership activated and school dashboard unlocked.");
     await refresh();
   });
+
+  renderSchoolDeletePanel();
 };
+
+document.querySelector("#schoolDashboard").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest(".delete-school-button");
+  if (!deleteButton) return;
+  const schoolId = deleteButton.dataset.id;
+  const school = (state.schools || []).find((item) => item.id === schoolId);
+  if (!school) return;
+  const counts = schoolDeletionSummary(school);
+  const summary = Object.entries(counts).map(([key, value]) => `${key}: ${value}`).join("\n");
+  const confirmation = window.prompt(
+    `Delete ${school.name} and all linked local data?\n\nSchool ID: ${school.id}\nAdmin mail: ${school.contact || "Not added"}\n\nLinked data:\n${summary}\n\nType DELETE ${school.name} to confirm.`
+  );
+  if (confirmation !== `DELETE ${school.name}`) {
+    showToast("School delete cancelled.");
+    return;
+  }
+  const result = await api.delete(`/api/schools/${school.id}`);
+  const totalRemoved = Object.values(result.removed || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  showToast(`${school.name} deleted. ${totalRemoved} linked records removed.`);
+  await refresh();
+});
 
 const renderEvents = () => {
   const registrations = state.eventRegistrations || [];

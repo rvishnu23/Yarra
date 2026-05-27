@@ -2538,6 +2538,103 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "DELETE" && resource === "schools" && id) {
+    if (!canWrite(user, "schools")) return deny(res);
+    if (usePostgres) {
+      sendJson(res, 501, { error: "School cascade delete is available in local JSON mode. Add database migrations before using it with PostgreSQL." });
+      return;
+    }
+
+    const school = db.schools.find((item) => item.id === id);
+    if (!school) {
+      sendJson(res, 404, { error: "School not found." });
+      return;
+    }
+
+    const eventIds = (db.events || [])
+      .filter((event) => event.schoolId === school.id || event.host === school.name)
+      .map((event) => event.id);
+    const userIds = (db.users || [])
+      .filter((item) => item.schoolId === school.id)
+      .map((item) => item.id);
+    const studentIds = (db.students || [])
+      .filter((student) => student.schoolId === school.id)
+      .map((student) => student.id);
+    const teacherIds = (db.teachers || [])
+      .filter((teacher) => teacher.schoolId === school.id)
+      .map((teacher) => teacher.id);
+
+    const before = {
+      schools: (db.schools || []).length,
+      users: (db.users || []).length,
+      students: (db.students || []).length,
+      teachers: (db.teachers || []).length,
+      payments: (db.payments || []).length,
+      events: (db.events || []).length,
+      eventRegistrations: (db.eventRegistrations || []).length,
+      content: (db.content || []).length,
+      exchanges: (db.exchanges || []).length,
+      notifications: (db.notifications || []).length,
+      teacherResources: (db.teacherResources || []).length,
+      reviewCycles: (db.reviewCycles || []).length,
+      marketOrders: (db.marketOrders || []).length
+    };
+
+    db.schools = (db.schools || []).filter((item) => item.id !== school.id);
+    db.users = (db.users || []).filter((item) => item.schoolId !== school.id && sanitizeEmail(item.email) !== sanitizeEmail(school.contact));
+    db.students = (db.students || []).filter((student) => student.schoolId !== school.id);
+    db.teachers = (db.teachers || []).filter((teacher) => teacher.schoolId !== school.id);
+    db.payments = (db.payments || []).filter((payment) => payment.schoolId !== school.id);
+    db.events = (db.events || []).filter((event) => event.schoolId !== school.id && event.host !== school.name);
+    db.eventRegistrations = (db.eventRegistrations || []).filter((registration) =>
+      registration.schoolId !== school.id &&
+      !eventIds.includes(registration.eventId) &&
+      !studentIds.includes(registration.studentId)
+    );
+    db.content = (db.content || []).filter((item) => item.schoolId !== school.id);
+    db.exchanges = (db.exchanges || []).filter((exchange) => exchange.schoolId !== school.id && exchange.fromSchool !== school.name);
+    db.notifications = (db.notifications || []).filter((notification) => {
+      const text = `${notification.title || ""} ${notification.message || ""}`;
+      return !text.includes(school.name) && !text.includes(school.contact || "");
+    });
+    db.teacherResources = (db.teacherResources || []).filter((resource) => resource.schoolId !== school.id);
+    db.reviewCycles = (db.reviewCycles || []).filter((cycle) => cycle.schoolId !== school.id);
+    db.marketOrders = (db.marketOrders || []).filter((order) =>
+      order.schoolId !== school.id &&
+      !studentIds.includes(order.buyerId) &&
+      !teacherIds.includes(order.buyerId) &&
+      !userIds.includes(order.buyerId)
+    );
+
+    for (const [hashedToken, session] of sessions.entries()) {
+      if (session.schoolId === school.id || userIds.includes(session.userId) || studentIds.includes(session.studentId) || teacherIds.includes(session.teacherId)) {
+        sessions.delete(hashedToken);
+      }
+    }
+
+    const removed = {
+      schools: before.schools - db.schools.length,
+      users: before.users - db.users.length,
+      students: before.students - db.students.length,
+      teachers: before.teachers - db.teachers.length,
+      payments: before.payments - db.payments.length,
+      events: before.events - db.events.length,
+      eventRegistrations: before.eventRegistrations - db.eventRegistrations.length,
+      content: before.content - db.content.length,
+      exchanges: before.exchanges - db.exchanges.length,
+      notifications: before.notifications - db.notifications.length,
+      teacherResources: before.teacherResources - db.teacherResources.length,
+      reviewCycles: before.reviewCycles - db.reviewCycles.length,
+      marketOrders: before.marketOrders - db.marketOrders.length
+    };
+
+    await writeJson(dbPath, db);
+    await persistSessions();
+    await audit("schools.delete", req, user, { schoolId: school.id, school: school.name, removed });
+    sendJson(res, 200, { deleted: true, school, removed });
+    return;
+  }
+
   if (req.method === "POST" && resource === "events") {
     if (!canWrite(user, "events")) return deny(res);
     const body = await readBody(req);
