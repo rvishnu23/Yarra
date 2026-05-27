@@ -225,10 +225,10 @@ const tutorialModuleDetails = {
   },
   userManagement: {
     title: "Excel Upload Engine",
-    goal: "Download roster templates, validate Excel files, preview errors, and commit student or teacher users.",
-    challenge: "Pick Student or Teacher Database, then inspect the validate and upload history panels.",
+    goal: "Download roster templates, validate Excel files, preview errors, and commit student or staff users.",
+    challenge: "Pick Student Database or Staff Database, then inspect the validate and upload history panels.",
     target: "#userManagement .upload-engine-grid",
-    actions: ["Choose Teacher Database or Student Database.", "Click Download Template before preparing Excel.", "Use Validate Upload first; Commit users appears only when validation passes.", "Check Upload history after every commit."]
+    actions: ["Choose Staff Database or Student Database.", "Click Download Template before preparing Excel.", "Use Validate Upload first; Commit users appears only when validation passes.", "Check Upload history after every commit."]
   },
   schoolDashboard: {
     title: "School dashboard",
@@ -2040,9 +2040,9 @@ const setTemplateSaveStatus = (message, status = "") => {
 const updateTemplateDownloadUi = () => {
   const isStudent = uploadType.value === "student_roster";
   downloadTemplateLink.href = isStudent
-    ? "assets/templates/student_roster_template.xlsx"
-    : "assets/templates/staff_roster_template.xlsx";
-  downloadTemplateLink.textContent = `Download ${isStudent ? "Student" : "Teacher"} Template`;
+    ? "assets/templates/Student%20Database.xlsx"
+    : "assets/templates/Staff%20Database.xlsx";
+  downloadTemplateLink.textContent = `Download ${isStudent ? "Student Database" : "Staff Database"}`;
   setTemplateSaveStatus("Saves directly to your Windows Downloads folder.");
 };
 

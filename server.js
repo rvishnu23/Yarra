@@ -1323,8 +1323,8 @@ function decodeXml(value = "") {
 }
 
 function parseSharedStrings(xml = "") {
-  return [...xml.matchAll(/<si[\s\S]*?<\/si>/g)].map(([si]) =>
-    decodeXml([...si.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((match) => match[1]).join(""))
+  return [...xml.matchAll(/<(?:\w+:)?si[\s\S]*?<\/(?:\w+:)?si>/g)].map(([si]) =>
+    decodeXml([...si.matchAll(/<(?:\w+:)?t[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/g)].map((match) => match[1]).join(""))
   );
 }
 
@@ -1336,17 +1336,17 @@ function columnIndex(ref) {
 }
 
 function parseWorksheet(xml = "", sharedStrings = []) {
-  return [...xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)].map(([, rowXml]) => {
+  return [...xml.matchAll(/<(?:\w+:)?row[^>]*>([\s\S]*?)<\/(?:\w+:)?row>/g)].map(([, rowXml]) => {
     const row = [];
-    for (const cellMatch of rowXml.matchAll(/<c([^>]*)>([\s\S]*?)<\/c>/g)) {
+    for (const cellMatch of rowXml.matchAll(/<(?:\w+:)?c([^>]*)>([\s\S]*?)<\/(?:\w+:)?c>/g)) {
       const attrs = cellMatch[1];
       const cellXml = cellMatch[2];
       const ref = attrs.match(/r="([^"]+)"/)?.[1] || "";
       const type = attrs.match(/t="([^"]+)"/)?.[1] || "";
       const idx = columnIndex(ref);
       let value = "";
-      const inline = cellXml.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1];
-      const raw = cellXml.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+      const inline = cellXml.match(/<(?:\w+:)?t[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/)?.[1];
+      const raw = cellXml.match(/<(?:\w+:)?v>([\s\S]*?)<\/(?:\w+:)?v>/)?.[1];
       if (type === "s") value = sharedStrings[Number(raw)] || "";
       else value = inline !== undefined ? decodeXml(inline) : decodeXml(raw || "");
       row[idx] = value;
@@ -1363,7 +1363,7 @@ function parseXlsx(buffer) {
 }
 
 const uploadSchemas = {
-  student_roster: ["student_id", "student_name", "grade", "section", "campus", "parent1_email", "parent1_name", "parent2_email", "parent2_name"],
+  student_roster: ["student_id", "student_name", "student_mail_id", "grade", "section", "campus"],
   staff_roster: ["employee_id", "name", "email", "role", "designation", "is_hrt", "campus", "grades"]
 };
 
@@ -1382,13 +1382,13 @@ function validateRoster(uploadType, rows) {
     const record = Object.fromEntries(expected.map((header, col) => [header, String(row[col] || "").trim()]));
     const rowNumber = index + 2;
     if (uploadType === "student_roster") {
-      ["student_id", "student_name", "grade", "campus", "parent1_email"].forEach((field) => {
+      ["student_id", "student_name", "student_mail_id", "grade", "campus"].forEach((field) => {
         if (!record[field]) errors.push({ row: rowNumber, field, message: `${field} is required.` });
       });
-      if (record.parent1_email && !record.parent1_email.includes("@")) errors.push({ row: rowNumber, field: "parent1_email", message: "Invalid parent email." });
+      if (record.student_mail_id && !record.student_mail_id.includes("@")) errors.push({ row: rowNumber, field: "student_mail_id", message: "Invalid student email." });
     }
     if (uploadType === "staff_roster") {
-      ["employee_id", "name", "email", "role", "designation", "campus", "grades"].forEach((field) => {
+      ["employee_id", "name", "email", "role", "campus", "grades"].forEach((field) => {
         if (!record[field]) errors.push({ row: rowNumber, field, message: `${field} is required.` });
       });
       if (record.email && !record.email.includes("@")) errors.push({ row: rowNumber, field: "email", message: "Invalid email." });
@@ -2194,8 +2194,8 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && resource === "templates" && id === "save") {
     const body = await readBody(req);
     const templateMap = {
-      staff_roster: "staff_roster_template.xlsx",
-      student_roster: "student_roster_template.xlsx"
+      staff_roster: "Staff Database.xlsx",
+      student_roster: "Student Database.xlsx"
     };
     const fileName = templateMap[body.uploadType] || templateMap.staff_roster;
     const source = join(root, "assets", "templates", fileName);
@@ -2382,15 +2382,12 @@ async function handleApi(req, res, url) {
           section: record.section,
           campus: record.campus,
           schoolId: user.schoolId,
-          guardianEmail: record.parent1_email,
-          parent1Name: record.parent1_name,
-          parent2Email: record.parent2_email,
-          parent2Name: record.parent2_name,
+          email: sanitizeEmail(record.student_mail_id),
+          guardianEmail: "",
           age: Number(record.age || 13),
           status: "Invited",
           access: ["Competitions", "Student exchange", "Age-gated content"]
         };
-        student.email = sanitizeEmail(record.student_email || record.email || record.parent1_email || "");
         db.students.unshift(student);
         upsertLocalStudentUser(db, student, student.email, "Invited");
       }

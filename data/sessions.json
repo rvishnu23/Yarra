@@ -572,7 +572,55 @@
       "teacherId": null,
       "vendorId": "vendor-learngrid",
       "createdAt": "2026-05-27T15:13:45.511Z",
-      "lastSeenAt": "2026-05-27T15:20:41.936Z"
+      "lastSeenAt": "2026-05-27T16:48:22.001Z"
+    }
+  },
+  {
+    "hashedToken": "75ad1770df504da601b07389a1dc3d93db21055b4e29e10e034db1eb3b8d946e",
+    "session": {
+      "email": "yarra.superadmin@akshararbol.edu.in",
+      "name": "Yarra Super Admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-yarra-super-admin",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-27T16:10:22.459Z",
+      "lastSeenAt": "2026-05-27T16:10:27.056Z"
+    }
+  },
+  {
+    "hashedToken": "901c6cdcdc625aa434b3a436b2f749571095ad92555affbe203e2804a0362ac4",
+    "session": {
+      "email": "yarra.superadmin@akshararbol.edu.in",
+      "name": "Yarra Super Admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-yarra-super-admin",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-27T16:11:27.811Z",
+      "lastSeenAt": "2026-05-27T16:11:32.377Z"
+    }
+  },
+  {
+    "hashedToken": "1d47cb9394b6646961724975d628d3fcdde7708cfb0a244dcea1e0ad3e80ee17",
+    "session": {
+      "email": "yarra.superadmin@akshararbol.edu.in",
+      "name": "Yarra Super Admin",
+      "provider": "gmail-dev",
+      "role": "Super Admin",
+      "userId": "user-yarra-super-admin",
+      "schoolId": "school-greenfield",
+      "studentId": null,
+      "teacherId": null,
+      "vendorId": "vendor-learngrid",
+      "createdAt": "2026-05-27T16:44:26.519Z",
+      "lastSeenAt": "2026-05-27T16:44:31.043Z"
     }
   }
 ]
