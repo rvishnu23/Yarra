@@ -2040,10 +2040,11 @@ const setTemplateSaveStatus = (message, status = "") => {
 const updateTemplateDownloadUi = () => {
   const isStudent = uploadType.value === "student_roster";
   downloadTemplateLink.href = isStudent
-    ? "assets/templates/Student%20Database.xlsx"
-    : "assets/templates/Staff%20Database.xlsx";
+    ? "assets/templates/Student Database.xlsx"
+    : "assets/templates/Staff Database.xlsx";
+  downloadTemplateLink.download = isStudent ? "Student Database.xlsx" : "Staff Database.xlsx";
   downloadTemplateLink.textContent = `Download ${isStudent ? "Student Database" : "Staff Database"}`;
-  setTemplateSaveStatus("Saves directly to your Windows Downloads folder.");
+  setTemplateSaveStatus("Choose a database and download the matching template.");
 };
 
 uploadType.addEventListener("change", updateTemplateDownloadUi);
@@ -2051,12 +2052,12 @@ uploadType.addEventListener("change", updateTemplateDownloadUi);
 downloadTemplateLink.addEventListener("click", async (event) => {
   event.preventDefault();
   const href = downloadTemplateLink.getAttribute("href");
-  const fileName = href.split("/").pop();
-  setTemplateSaveStatus(`Saving ${fileName} to your Downloads folder...`);
+  const fileName = decodeURIComponent(href.split("/").pop());
+  setTemplateSaveStatus(`Preparing ${fileName}...`);
   try {
-    const saved = await api.saveTemplate(uploadType.value);
-    setTemplateSaveStatus(`Saved on this computer: ${saved.path}`, "saved");
-    showToast(`${fileName} saved to Downloads.`);
+    await api.saveTemplate(uploadType.value);
+    setTemplateSaveStatus(`${fileName} downloaded.`, "saved");
+    showToast(`${fileName} downloaded.`);
 
     try {
       const response = await fetch(href);
