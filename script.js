@@ -829,6 +829,12 @@ const renderMetrics = () => {
 
 const renderDashboard = () => {
   const panel = document.querySelector(".dashboard-welcome");
+  if (currentRole() === "Super Admin") {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+  panel.hidden = false;
   if (currentRole() !== "Student") {
     panel.innerHTML = `
       <p class="eyebrow">Workspace</p>
