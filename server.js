@@ -60,6 +60,34 @@ const apiRateLimitMax = clampNumber(process.env.API_RATE_LIMIT_MAX || 240, 10, 5
 const sessions = new Map();
 const rateLimits = new Map();
 
+const yarraRoleAccounts = {
+  "Super Admin": {
+    email: "yarra.superadmin@akshararbol.edu.in",
+    password: process.env.YARRA_SUPER_ADMIN_PASSWORD || "Yarra@Super123",
+    name: "Yarra Super Admin"
+  },
+  "School Admin": {
+    email: "yarra.schooladmin@akshararbol.edu.in",
+    password: process.env.YARRA_SCHOOL_ADMIN_PASSWORD || "Yarra@School123",
+    name: "Akshar Arbol School Admin"
+  },
+  Teacher: {
+    email: "yarra.teacher@akshararbol.edu.in",
+    password: process.env.YARRA_TEACHER_PASSWORD || "Yarra@Teacher123",
+    name: "Akshar Arbol Teacher"
+  },
+  Student: {
+    email: "yarra.student@akshararbol.edu.in",
+    password: process.env.YARRA_STUDENT_PASSWORD || "Yarra@Student123",
+    name: "Akshar Arbol Student"
+  },
+  Vendor: {
+    email: "yarra.vendor@akshararbol.edu.in",
+    password: process.env.YARRA_VENDOR_PASSWORD || "Yarra@Vendor123",
+    name: "Yarra Vendor Partner"
+  }
+};
+
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -902,6 +930,28 @@ function upsertLocalTeacherUser(state, teacher, email, status = "Active") {
 
 function resolveLocalUser(state, email, requestedRole, requestedSchoolId, requestedVendorId) {
   state.users ||= [];
+  const requested = normalizeRole(requestedRole || "School Admin");
+  const yarraAccount = Object.entries(yarraRoleAccounts).find(([, account]) => sanitizeEmail(account.email) === email);
+  if (yarraAccount) {
+    const [accountRole, account] = yarraAccount;
+    if (requested !== accountRole) return null;
+    const internalSchool = state.schools.find((school) => /akshar|arbol/i.test(`${school.name} ${school.contact}`)) || state.schools.find((school) => school.status === "Active") || state.schools[0] || null;
+    const vendor = accountRole === "Vendor" ? state.vendors.find((item) => item.status === "Approved") || state.vendors[0] || null : null;
+    const student = accountRole === "Student" ? state.students.find((item) => item.schoolId === internalSchool?.id) || state.students[0] || null : null;
+    const teacher = accountRole === "Teacher" ? state.teachers.find((item) => item.schoolId === internalSchool?.id) || state.teachers[0] || null : null;
+    return {
+      id: `user-yarra-${slug(accountRole)}`,
+      email: account.email,
+      display_name: account.name,
+      role: accountRole,
+      school_id: ["School Admin", "Teacher", "Student"].includes(accountRole) ? internalSchool?.id || null : null,
+      student_id: accountRole === "Student" ? student?.id || null : null,
+      teacher_id: accountRole === "Teacher" ? teacher?.id || null : null,
+      vendor_id: accountRole === "Vendor" ? vendor?.id || null : null,
+      status: "Active",
+      is_yarra_builtin: true
+    };
+  }
   const existing = state.users.find((user) => sanitizeEmail(user.email) === email);
   if (existing) {
     if (["School Admin", "Teacher", "Student"].includes(existing.role)) {
@@ -921,7 +971,7 @@ function resolveLocalUser(state, email, requestedRole, requestedSchoolId, reques
     };
   }
 
-  const role = normalizeRole(requestedRole || "School Admin");
+  const role = requested;
   if (role === "Super Admin") {
     const user = {
       id: `user-${slug(email)}`,
@@ -1821,9 +1871,23 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const googleProfile = body.credential || body.idToken ? await verifyGoogleCredential(body.credential || body.idToken) : null;
     const email = googleProfile?.email || validateEmailField(body.email, "login email");
+    const submittedPassword = String(body.password || "");
     if (googleClientId && !googleProfile) {
       sendJson(res, 401, { error: "Google OAuth credential is required." });
       return;
+    }
+    if (!googleProfile) {
+      const builtinEntry = Object.entries(yarraRoleAccounts).find(([, account]) => sanitizeEmail(account.email) === email);
+      if (builtinEntry) {
+        const [builtinRole, builtinAccount] = builtinEntry;
+        if (normalizeRole(body.role) !== builtinRole || submittedPassword !== builtinAccount.password) {
+          sendJson(res, 401, { error: "Invalid username, password, or role for this Yarra account." });
+          return;
+        }
+      } else if (!submittedPassword.trim()) {
+        sendJson(res, 401, { error: "Password is required." });
+        return;
+      }
     }
     const dbUser = usePostgres
       ? await resolveDbUser(email, body.role, body.schoolId, body.vendorId)

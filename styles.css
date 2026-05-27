@@ -108,6 +108,26 @@ img {
   font-weight: 750;
 }
 
+.credential-guide {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(215, 244, 244, 0.45);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.credential-guide p,
+.credential-guide span {
+  margin: 0;
+}
+
+.credential-guide strong {
+  color: var(--ink);
+}
+
 .app-shell {
   min-height: 100vh;
   display: none;

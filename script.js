@@ -4,6 +4,29 @@ const AUTH_STORAGE_KEY = "yaara-authenticated";
 const defaultTimeoutMinutes = 0;
 let activeSession = null;
 
+const yarraLoginPresets = {
+  "Super Admin": {
+    email: "yarra.superadmin@akshararbol.edu.in",
+    password: "Yarra@Super123"
+  },
+  "School Admin": {
+    email: "yarra.schooladmin@akshararbol.edu.in",
+    password: "Yarra@School123"
+  },
+  Teacher: {
+    email: "yarra.teacher@akshararbol.edu.in",
+    password: "Yarra@Teacher123"
+  },
+  Student: {
+    email: "yarra.student@akshararbol.edu.in",
+    password: "Yarra@Student123"
+  },
+  Vendor: {
+    email: "yarra.vendor@akshararbol.edu.in",
+    password: "Yarra@Vendor123"
+  }
+};
+
 const getStoredJson = (key, fallback = {}) => {
   try {
     return JSON.parse(
@@ -1559,6 +1582,7 @@ const completeGmailLogin = async () => {
   const formData = new FormData(loginForm);
   const authUser = await api.gmailLogin({
     email: formData.get("email"),
+    password: formData.get("password"),
     role: formData.get("role")
   });
   roleSelect.value = authUser.role;
@@ -1839,6 +1863,13 @@ navButtons.forEach((button) => {
 
 tutorialButton?.addEventListener("click", startTutorial);
 
+loginForm.querySelector('select[name="role"]').addEventListener("change", (event) => {
+  const preset = yarraLoginPresets[event.target.value];
+  if (!preset) return;
+  loginForm.querySelector('input[name="email"]').value = preset.email;
+  loginForm.querySelector('input[name="password"]').value = preset.password;
+});
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
@@ -1859,7 +1890,8 @@ gmailLoginButton.addEventListener("click", async () => {
 vendorSignupOpenButton.addEventListener("click", async () => {
   try {
     const authUser = await api.gmailLogin({
-      email: "vendor@gmail.com",
+      email: "yarra.vendor@akshararbol.edu.in",
+      password: "Yarra@Vendor123",
       role: "Vendor"
     });
     roleSelect.value = authUser.role;
