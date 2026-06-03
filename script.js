@@ -223,8 +223,8 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
@@ -300,13 +300,6 @@ const tutorialModuleDetails = {
     challenge: "Add a staff resource and confirm it appears under the correct resource type.",
     target: "#teachersHub .section-bar",
     actions: ["Click Add resource.", "Choose Upcoming PL Session, Past Recording, or Resource Document.", "Add a link or file name so staff know where to access it."]
-  },
-  reviewCycle: {
-    title: "Review Cycle",
-    goal: "Track school improvement stages from self-study through recommendations.",
-    challenge: "Create a review cycle and inspect each stage status.",
-    target: "#reviewCycle .section-bar",
-    actions: ["Create cycle.", "Set start and end dates.", "Track self-study, review visit, SIP, and recommendations."]
   },
   library: {
     title: "Content library",
@@ -386,7 +379,6 @@ const leaderThreadButton = document.querySelector("#leaderThreadButton");
 const leaderTakeawayButton = document.querySelector("#leaderTakeawayButton");
 const profileEditButton = document.querySelector("#profileEditButton");
 const teacherResourceButton = document.querySelector("#teacherResourceButton");
-const reviewCycleButton = document.querySelector("#reviewCycleButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const paymentConfig = document.querySelector("#paymentConfig");
 const paymentRescueButton = document.querySelector("#paymentRescueButton");
@@ -997,8 +989,7 @@ const schoolDeletionSummary = (school) => {
     content: (state.content || []).filter((item) => item.schoolId === school.id).length,
     exchanges: (state.exchanges || []).filter((exchange) => exchange.schoolId === school.id || exchange.fromSchool === school.name).length,
     orders: (state.marketOrders || []).filter((order) => order.schoolId === school.id).length,
-    resources: (state.teacherResources || []).filter((resource) => resource.schoolId === school.id).length,
-    reviews: (state.reviewCycles || []).filter((cycle) => cycle.schoolId === school.id).length
+    resources: (state.teacherResources || []).filter((resource) => resource.schoolId === school.id).length
   };
 };
 
@@ -1386,33 +1377,6 @@ const renderTeachersHub = () => {
   }).join("");
 };
 
-const renderReviewCycle = () => {
-  const grid = document.querySelector("#reviewCycleGrid");
-  if (!grid) return;
-  const cycles = state.reviewCycles || [];
-  reviewCycleButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
-  grid.innerHTML = cycles.length
-    ? cycles.map((cycle) => {
-        const stages = [
-          ["Self-study", cycle.selfStudyStatus],
-          ["Review visit", cycle.reviewVisitStatus],
-          ["SIP", cycle.sipStatus],
-          ["Recommendations", cycle.recommendationsStatus]
-        ];
-        return `
-          <article class="panel">
-            <p class="eyebrow">${cycle.startDate || "Start pending"} - ${cycle.endDate || "End pending"}</p>
-            <h3>${cycle.title}</h3>
-            <p>${cycle.notes || "Track review evidence, visits, improvement plans, and recommendation closure."}</p>
-            <div class="compact-list">
-              ${stages.map(([label, status]) => `<article><strong>${label}</strong><span>${status || "Not Started"}</span></article>`).join("")}
-            </div>
-          </article>
-        `;
-      }).join("")
-    : `<article class="panel"><h3>No review cycle yet</h3><p>Create the first school improvement cycle when the school is ready.</p></article>`;
-};
-
 const renderSchoolNetwork = () => {
   const grid = document.querySelector("#schoolNetworkGrid");
   if (!grid) return;
@@ -1702,7 +1666,6 @@ const renderAll = () => {
   renderLeadership();
   renderMyProfile();
   renderTeachersHub();
-  renderReviewCycle();
   renderLibrary();
   renderVendors();
   renderSchoolNetwork();
@@ -2320,27 +2283,6 @@ teacherResourceButton.addEventListener("click", () => {
     async (payload) => {
       await api.create("teacher-resources", payload);
       showToast("Teachers Hub resource added.");
-      await refresh();
-    }
-  );
-});
-
-reviewCycleButton.addEventListener("click", () => {
-  modal(
-    "Create review cycle",
-    [
-      { label: "Cycle title", name: "title", value: "School improvement review", required: true },
-      { label: "Start date", name: "startDate", type: "date" },
-      { label: "End date", name: "endDate", type: "date" },
-      { label: "Self-study", name: "selfStudyStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
-      { label: "Review visit", name: "reviewVisitStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
-      { label: "SIP", name: "sipStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
-      { label: "Recommendations", name: "recommendationsStatus", type: "select", options: ["Not Started", "In Progress", "Completed"] },
-      { label: "Notes", name: "notes", type: "textarea", value: "Add evidence, visit, SIP, or recommendation notes." }
-    ],
-    async (payload) => {
-      await api.create("review-cycles", payload);
-      showToast("Review cycle created.");
       await refresh();
     }
   );
