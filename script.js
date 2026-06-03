@@ -1655,7 +1655,7 @@ const completeGmailLogin = async () => {
   storeSession(authUser.session);
   setAuthenticated(true);
   await refreshWithSession(authUser.session);
-  showToast(`Signed in with Gmail as ${authUser.email}.`);
+  showToast(`Signed in as ${authUser.email}.`);
 };
 
 const loadRazorpayScript = () =>

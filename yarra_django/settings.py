@@ -1,14 +1,22 @@
 import os
+import tempfile
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-RUNTIME_DIR = Path(os.environ.get("YARRA_RUNTIME_DIR") or Path(os.environ.get("LOCALAPPDATA", BASE_DIR / "data")) / "Yarra")
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+DEFAULT_RUNTIME_ROOT = Path(tempfile.gettempdir()) if IS_VERCEL else Path(os.environ.get("LOCALAPPDATA", BASE_DIR / "data"))
+RUNTIME_DIR = Path(os.environ.get("YARRA_RUNTIME_DIR") or DEFAULT_RUNTIME_ROOT / "Yarra")
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
-SECRET_KEY = "local-dev-yarra-django"
-DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "local-dev-yarra-django")
+DEBUG = os.environ.get("DJANGO_DEBUG", "false" if IS_VERCEL else "true").lower() == "true"
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    ".vercel.app",
+    *(host for host in [os.environ.get("VERCEL_URL")] if host),
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
