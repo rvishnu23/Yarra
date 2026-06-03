@@ -1768,8 +1768,8 @@ function canWrite(user, resource, action = "") {
   if (resource === "vendor-products") return user.role === "Vendor";
   if (resource === "market-orders" && action === "advance") return user.role === "Vendor";
   if (resource === "market-orders") return ["School Admin", "Teacher", "Student"].includes(user.role);
-  if (resource === "content" && ["like", "save", "comment"].includes(action)) return ["Super Admin", "School Admin", "Teacher", "Student"].includes(user.role);
-  if (resource === "content") return ["Super Admin", "School Admin", "Teacher"].includes(user.role);
+  if (resource === "content" && ["like", "save", "comment"].includes(action)) return ["Super Admin", "School Admin"].includes(user.role);
+  if (resource === "content") return ["Super Admin", "School Admin"].includes(user.role);
   if (resource === "vendors" && action === "approve") return false;
   if (resource === "vendors") return user.role === "Vendor";
   return false;

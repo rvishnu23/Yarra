@@ -223,8 +223,8 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "myProfile", "teachersHub", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
@@ -279,13 +279,6 @@ const tutorialModuleDetails = {
     challenge: "Scan the full exchange lifecycle from Draft to Feedback Submitted.",
     target: "#exchange .kanban",
     actions: ["Create a draft exchange request.", "Submit it for Yarra approval.", "Track applications, school approvals, coordination messages, activity updates, completion, and feedback."]
-  },
-  leadership: {
-    title: "Leadership Connect",
-    goal: "Use principal-only forums for leadership prompts, takeaways, and discussion threads.",
-    challenge: "Review forum details, add a takeaway, and start a leader discussion thread.",
-    target: "#leadership .section-bar",
-    actions: ["Read the monthly forum details.", "Use discussion prompts to guide leadership reflection.", "Add key takeaways after each forum.", "Start or reply to leader-only discussion threads."]
   },
   myProfile: {
     title: "My Profile",
@@ -375,8 +368,6 @@ const librarySearch = document.querySelector("#librarySearch");
 const metricsGrid = document.querySelector(".metrics-grid");
 const notificationButton = document.querySelector("#notificationButton");
 const contentPostButton = document.querySelector("#contentPostButton");
-const leaderThreadButton = document.querySelector("#leaderThreadButton");
-const leaderTakeawayButton = document.querySelector("#leaderTakeawayButton");
 const profileEditButton = document.querySelector("#profileEditButton");
 const teacherResourceButton = document.querySelector("#teacherResourceButton");
 const paymentPanel = document.querySelector(".payment-panel");
@@ -640,6 +631,8 @@ const startTutorial = () => {
   renderTutorialStep();
 };
 
+const canManageContent = () => ["Super Admin", "School Admin"].includes(currentRole());
+
 const applyRolePermissions = () => {
   const role = currentRole();
   if (roleSelect && roleSelect.value !== role) roleSelect.value = role;
@@ -647,15 +640,17 @@ const applyRolePermissions = () => {
   navButtons.forEach((button) => {
     button.hidden = !allowed.includes(button.dataset.view);
   });
-  document.querySelector("#eventButton").hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
-  document.querySelector("#paymentButton").hidden = !["Super Admin", "School Admin"].includes(role);
-  contentPostButton.hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
-  leaderThreadButton.hidden = !["Super Admin", "School Admin"].includes(role);
-  leaderTakeawayButton.hidden = !["Super Admin", "School Admin"].includes(role);
-  vendorProductButton.hidden = currentRole() !== "Vendor";
-  marketCartButton.hidden = currentRole() === "Vendor";
-  document.querySelector("#exchangeButton").hidden = role === "Vendor";
-  document.querySelector(".membership-card").hidden = role === "Vendor";
+  const eventButton = document.querySelector("#eventButton");
+  const paymentButton = document.querySelector("#paymentButton");
+  const exchangeButton = document.querySelector("#exchangeButton");
+  const membershipCard = document.querySelector(".membership-card");
+  if (eventButton) eventButton.hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
+  if (paymentButton) paymentButton.hidden = !["Super Admin", "School Admin"].includes(role);
+  if (contentPostButton) contentPostButton.hidden = !canManageContent();
+  if (vendorProductButton) vendorProductButton.hidden = currentRole() !== "Vendor";
+  if (marketCartButton) marketCartButton.hidden = currentRole() === "Vendor";
+  if (exchangeButton) exchangeButton.hidden = role === "Vendor";
+  if (membershipCard) membershipCard.hidden = role === "Vendor";
 
   const activeView = document.querySelector(".view.is-active")?.id || allowed[0];
   if (!allowed.includes(activeView)) {
@@ -1253,60 +1248,6 @@ const renderExchange = () => {
     .join("");
 };
 
-const renderLeadership = () => {
-  const threads = state.leadershipThreads || [];
-  const takeaways = threads.flatMap((thread) =>
-    (thread.takeaways || []).map((takeaway) => ({
-      ...takeaway,
-      threadTitle: thread.title
-    }))
-  );
-
-  document.querySelector("#leadershipTakeaways").innerHTML = takeaways.length
-    ? takeaways
-        .slice(0, 6)
-        .map((takeaway) => `
-          <article>
-            <strong>${takeaway.text}</strong>
-            <span>${takeaway.threadTitle} - ${takeaway.author || "Leader"}</span>
-          </article>
-        `)
-        .join("")
-    : `<article><strong>No takeaways yet</strong><span>Add concise notes after each principal forum.</span></article>`;
-
-  document.querySelector("#leadershipThreads").innerHTML = threads.length
-    ? threads
-        .map((thread) => `
-          <article class="leader-thread" data-id="${thread.id}">
-            <div class="thread-heading">
-              <div>
-                <p class="eyebrow">${thread.forumDate || "Leadership forum"}</p>
-                <h3>${thread.title}</h3>
-                <span>${thread.author || "School leader"} - ${thread.schoolName || schoolName(thread.schoolId)}</span>
-              </div>
-              <strong>${(thread.replies || []).length} replies</strong>
-            </div>
-            <p>${thread.prompt || "Open leadership discussion."}</p>
-            ${(thread.takeaways || []).length ? `
-              <div class="thread-takeaways">
-                ${(thread.takeaways || []).slice(0, 3).map((takeaway) => `<span>${takeaway.text}</span>`).join("")}
-              </div>
-            ` : ""}
-            ${(thread.replies || []).length ? `
-              <div class="comment-preview">
-                ${(thread.replies || []).slice(0, 2).map((reply) => `<p><strong>${reply.author}</strong> ${reply.text}</p>`).join("")}
-              </div>
-            ` : ""}
-            <div class="post-actions">
-              <button class="ghost-button reply-leader-thread" type="button" data-id="${thread.id}">Reply</button>
-              <button class="ghost-button add-thread-takeaway" type="button" data-id="${thread.id}">Add takeaway</button>
-            </div>
-          </article>
-        `)
-        .join("")
-    : `<article class="leader-thread"><h3>No leader threads yet</h3><p>Start the first principal discussion after your next forum.</p></article>`;
-};
-
 const signedInProfile = () => {
   const session = currentSession() || {};
   const role = currentRole();
@@ -1357,7 +1298,7 @@ const renderTeachersHub = () => {
   if (!grid) return;
   const buckets = ["Upcoming PL Session", "Past Recording", "Resource Document"];
   const resources = state.teacherResources || [];
-  teacherResourceButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
+  if (teacherResourceButton) teacherResourceButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
   grid.innerHTML = buckets.map((bucket) => {
     const items = resources.filter((resource) => resource.type === bucket);
     return `
@@ -1397,6 +1338,7 @@ const renderSchoolNetwork = () => {
 
 const renderLibrary = () => {
   const query = librarySearch.value.trim().toLowerCase();
+  const canInteract = canManageContent();
   const normalizedContent = (state.content || []).map((item) => ({
     ...item,
     type: item.type || "Article",
@@ -1452,11 +1394,13 @@ const renderLibrary = () => {
                     : `<div class="post-media"><img src="${media}" alt=""></div>`}
               <p class="post-copy">${item.body || "Shared with the Yarra community."}</p>
               ${tagList([...item.tags, "All members"])}
-              <div class="post-actions">
-                <button class="ghost-button content-like" type="button" data-id="${item.id}">Like ${item.likes}</button>
-                <button class="ghost-button content-comment" type="button" data-id="${item.id}">Comment ${item.comments}</button>
-                <button class="ghost-button content-save" type="button" data-id="${item.id}">Save ${item.saved}</button>
-              </div>
+              ${canInteract ? `
+                <div class="post-actions">
+                  <button class="ghost-button content-like" type="button" data-id="${item.id}">Like ${item.likes}</button>
+                  <button class="ghost-button content-comment" type="button" data-id="${item.id}">Comment ${item.comments}</button>
+                  <button class="ghost-button content-save" type="button" data-id="${item.id}">Save ${item.saved}</button>
+                </div>
+              ` : ""}
               ${item.commentThreads?.length ? `
                 <div class="comment-preview">
                   ${item.commentThreads.slice(0, 2).map((comment) => `<p><strong>${comment.author}</strong> ${comment.text}</p>`).join("")}
@@ -1479,7 +1423,7 @@ const renderVendors = () => {
   });
   const orders = state.marketOrders || [];
 
-  marketCartButton.textContent = `Cart ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
+  if (marketCartButton) marketCartButton.textContent = `Cart ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
   document.querySelectorAll(".market-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.marketTab === marketTab));
   document.querySelector("#marketOrders").innerHTML = orders.length
     ? orders
@@ -1663,7 +1607,6 @@ const renderAll = () => {
   renderSchoolDashboard();
   renderEvents();
   renderExchange();
-  renderLeadership();
   renderMyProfile();
   renderTeachersHub();
   renderLibrary();
@@ -2371,10 +2314,10 @@ const openCartModal = () => {
   document.body.append(overlay);
 };
 
-vendorProductButton.addEventListener("click", openVendorProductModal);
-marketCartButton.addEventListener("click", openCartModal);
+vendorProductButton?.addEventListener("click", openVendorProductModal);
+marketCartButton?.addEventListener("click", openCartModal);
 
-document.querySelector("#vendors").addEventListener("click", async (event) => {
+document.querySelector("#vendors")?.addEventListener("click", async (event) => {
   const tab = event.target.closest(".market-tab");
   const addToCart = event.target.closest(".add-to-cart");
   const approve = event.target.closest(".approve-vendor");
@@ -2490,64 +2433,16 @@ const openContentPostModal = () => {
   document.body.append(overlay);
 };
 
-contentPostButton.addEventListener("click", openContentPostModal);
+contentPostButton?.addEventListener("click", openContentPostModal);
 
-const openLeaderThreadModal = () => {
-  modal(
-    "Start leader discussion",
-    [
-      { label: "Thread title", name: "title", required: true },
-      { label: "Forum date", name: "forumDate", type: "date" },
-      { label: "Discussion prompt", name: "prompt", type: "textarea", value: "What should Yarra school leaders discuss or decide together?" },
-      { label: "Initial key takeaway", name: "takeaway", type: "textarea", value: "" }
-    ],
-    async (payload) => {
-      await api.create("leadership-threads", payload);
-      showToast("Leadership thread started.");
-      await refresh();
-      setView("leadership");
-    }
-  );
-};
-
-const addLeaderTakeaway = async (threadId = null) => {
-  const threads = state.leadershipThreads || [];
-  const targetThreadId = threadId || threads[0]?.id;
-  if (!targetThreadId) {
-    openLeaderThreadModal();
-    return;
-  }
-  const text = window.prompt("Add a key takeaway");
-  if (!text?.trim()) return;
-  await api.post(`/api/leadership-threads/${targetThreadId}/takeaway`, { text: text.trim() });
-  showToast("Leadership takeaway added.");
-  await refresh();
-  setView("leadership");
-};
-
-leaderThreadButton.addEventListener("click", openLeaderThreadModal);
-leaderTakeawayButton.addEventListener("click", () => addLeaderTakeaway());
-
-document.querySelector("#leadershipThreads").addEventListener("click", async (event) => {
-  const replyButton = event.target.closest(".reply-leader-thread");
-  const takeawayButton = event.target.closest(".add-thread-takeaway");
-  if (replyButton) {
-    const text = window.prompt("Reply to this leader thread");
-    if (!text?.trim()) return;
-    await api.post(`/api/leadership-threads/${replyButton.dataset.id}/reply`, { text: text.trim() });
-    showToast("Reply added.");
-    await refresh();
-    setView("leadership");
-  }
-  if (takeawayButton) {
-    await addLeaderTakeaway(takeawayButton.dataset.id);
-  }
-});
-
-document.querySelector("#libraryGrid").addEventListener("click", async (event) => {
+document.querySelector("#libraryGrid")?.addEventListener("click", async (event) => {
   const likeButton = event.target.closest(".content-like");
   const saveButton = event.target.closest(".content-save");
   const commentButton = event.target.closest(".content-comment");
+  if ((likeButton || saveButton || commentButton) && !canManageContent()) {
+    showToast("Only School Admins and Super Admin can interact with posts.");
+    return;
+  }
   if (likeButton) {
     await api.post(`/api/content/${likeButton.dataset.id}/like`);
     await refresh();
@@ -2567,7 +2462,7 @@ document.querySelector("#libraryGrid").addEventListener("click", async (event) =
   }
 });
 
-document.querySelector("#storyStrip").addEventListener("click", (event) => {
+document.querySelector("#storyStrip")?.addEventListener("click", (event) => {
   const storyButton = event.target.closest(".open-content");
   if (!storyButton) return;
   libraryFilter = "Story";
@@ -2794,7 +2689,7 @@ const openEventBuilderModal = (existingEvent = null) => {
   document.body.append(overlay);
 };
 
-document.querySelector("#eventButton").addEventListener("click", openEventBuilderModal);
+document.querySelector("#eventButton")?.addEventListener("click", openEventBuilderModal);
 
 const openEventRegistrationsModal = (eventId) => {
   const event = state.events.find((item) => item.id === eventId);
@@ -3021,7 +2916,7 @@ const openStudentEventRegistrationForm = (eventItem) => {
   document.body.append(overlay);
 };
 
-document.querySelector("#eventsGrid").addEventListener("click", async (event) => {
+document.querySelector("#eventsGrid")?.addEventListener("click", async (event) => {
   const registerButton = event.target.closest(".register-event");
   const manageButton = event.target.closest(".manage-event");
   const editButton = event.target.closest(".edit-event");
@@ -3053,7 +2948,7 @@ document.querySelector("#eventsGrid").addEventListener("click", async (event) =>
   }
 });
 
-document.querySelector("#exchangeButton").addEventListener("click", () => {
+document.querySelector("#exchangeButton")?.addEventListener("click", () => {
   modal(
     "Create exchange request",
     [
@@ -3162,7 +3057,7 @@ const openExchangeFeedbackModal = (exchange, nextStatus) => {
   );
 };
 
-document.querySelector(".kanban").addEventListener("click", async (event) => {
+document.querySelector(".kanban")?.addEventListener("click", async (event) => {
   const reviewButton = event.target.closest(".review-exchange");
   const approveButton = event.target.closest(".approve-exchange");
   const messageButton = event.target.closest(".message-exchange");
@@ -3221,15 +3116,15 @@ document.querySelector(".kanban").addEventListener("click", async (event) => {
   }
 });
 
-document.querySelector("#vendorPreviewButton").addEventListener("click", () => {
+document.querySelector("#vendorPreviewButton")?.addEventListener("click", () => {
   setView("vendors");
 });
 
-document.querySelector("#vendorApplyButton").addEventListener("click", () => {
+document.querySelector("#vendorApplyButton")?.addEventListener("click", () => {
   document.querySelector(".vendor-apply-panel").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-document.querySelector("#vendorSignupForm").addEventListener("submit", async (event) => {
+document.querySelector("#vendorSignupForm")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const formData = new FormData(form);
@@ -3243,7 +3138,7 @@ document.querySelector("#vendorSignupForm").addEventListener("submit", async (ev
   }
 });
 
-document.querySelector(".promotion-banner .ghost-button").addEventListener("click", () => {
+document.querySelector(".promotion-banner .ghost-button")?.addEventListener("click", () => {
   const promotion = state.promotions[0];
   showToast(promotion ? `${promotion.name}: ${promotion.placement} is ${promotion.status}.` : "No vendor promotions yet.");
 });
@@ -3256,8 +3151,19 @@ if (getSessionValue(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
     setAuthenticated(true);
     roleSelect.value = currentRole();
     await refresh();
-  } catch {
-    setAuthenticated(false);
+  } catch (error) {
+    const message = String(error?.message || "");
+    const authFailure =
+      message.includes("sign in again") ||
+      message.includes("Unable to load platform state") ||
+      message.includes("401");
+    if (authFailure) {
+      setAuthenticated(false);
+    } else {
+      console.error(error);
+      setAuthenticated(true);
+      showToast("The page hit a local render hiccup. Refresh again to continue.");
+    }
   } finally {
     suppressSessionExpiryToast = false;
   }

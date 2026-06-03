@@ -225,7 +225,7 @@ def can_write(user, resource):
     if resource in {"teacher-resources", "review-cycles"}:
         return role in {"Super Admin", "School Admin", "Teacher"}
     if resource == "content":
-        return role in {"Super Admin", "School Admin", "Teacher"}
+        return role in {"Super Admin", "School Admin"}
     return role in {"Super Admin", "School Admin"}
 
 
@@ -392,6 +392,11 @@ def action(request, resource, item_id, action):
     if resource == "exchanges" and action == "message":
         result = message_exchange(item_id, user, body_json(request))
         return JsonResponse(result, status=400 if result.get("error") else 200)
+    if resource == "content" and action in {"like", "save", "comment"}:
+        result = update_content_interaction(item_id, action, user, body_json(request))
+        if result.get("permissionError"):
+            return JsonResponse({"error": result["error"]}, status=403)
+        return JsonResponse(result, status=400 if result.get("error") else 200)
     if resource == "event-registrations" and action in {"cancel", "mark-paid"}:
         return JsonResponse(update_registration(item_id, action, user))
     if resource == "notifications" and item_id == "read":
@@ -507,11 +512,43 @@ def create_payment(payload, _user):
     return upsert("payments", payment)
 
 
+def create_content(payload, user):
+    tags = payload.get("tags")
+    if not isinstance(tags, list):
+        tags = [tag.strip() for tag in str(tags or "").split(",") if tag.strip()]
+    content = {
+        "id": create_id("content", payload.get("title") or payload.get("type") or "post"),
+        "title": payload.get("title") or "Untitled post",
+        "type": payload.get("type") or "Article",
+        "speaker": payload.get("speaker") or user.get("email") or "Yarra member",
+        "authorRole": user.get("role"),
+        "schoolId": user.get("schoolId") or None,
+        "category": payload.get("category") or "Community",
+        "body": payload.get("body") or "",
+        "mediaUrl": payload.get("mediaUrl") or "",
+        "thumbnailUrl": payload.get("thumbnailUrl") or payload.get("mediaUrl") or "",
+        "tags": tags,
+        "audience": payload.get("audience") if isinstance(payload.get("audience"), list) else ["School Admin", "Teacher", "Student"],
+        "minAge": int(payload.get("minAge") or 5),
+        "maxAge": int(payload.get("maxAge") or 18),
+        "likes": 0,
+        "likedBy": [],
+        "saved": 0,
+        "savedBy": [],
+        "comments": 0,
+        "commentThreads": [],
+        "views": 0,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    return upsert("content", content)
+
+
 CREATE_HANDLERS = {
     "schools": create_school,
     "events": create_event,
     "exchanges": create_exchange,
     "payments": create_payment,
+    "content": create_content,
 }
 
 
@@ -704,3 +741,35 @@ def update_registration(registration_id, action_name, user):
     registration["status"] = "Confirmed" if action_name == "mark-paid" else "Cancelled"
     registration["paymentStatus"] = "Paid" if action_name == "mark-paid" else registration.get("paymentStatus")
     return save_existing("eventRegistrations", registration)
+
+
+def update_content_interaction(content_id, action_name, user, payload):
+    if user["role"] not in {"Super Admin", "School Admin"}:
+        return {"error": "Only School Admins and Super Admin can interact with posts.", "permissionError": True}
+    content = find_one("content", content_id)
+    if not content:
+        return {"error": "Content not found."}
+    actor = user.get("email") or user.get("schoolId") or user["role"]
+    if action_name == "like":
+        liked_by = content.get("likedBy") or []
+        content["likedBy"] = [entry for entry in liked_by if entry != actor] if actor in liked_by else [*liked_by, actor]
+        content["likes"] = len(content["likedBy"])
+    if action_name == "save":
+        saved_by = content.get("savedBy") or []
+        content["savedBy"] = [entry for entry in saved_by if entry != actor] if actor in saved_by else [*saved_by, actor]
+        content["saved"] = len(content["savedBy"])
+    if action_name == "comment":
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return {"error": "Comment cannot be empty."}
+        comments = content.get("commentThreads") or []
+        comments.insert(0, {
+            "id": create_id("comment", text),
+            "author": user.get("email") or user["role"],
+            "role": user["role"],
+            "text": text,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        })
+        content["commentThreads"] = comments
+        content["comments"] = len(comments)
+    return save_existing("content", content)
