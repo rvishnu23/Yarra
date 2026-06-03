@@ -3,3 +3,8 @@ node_modules/
 *.log
 reference-yarra*/
 data/*.tmp
+data/*.pid
+data/*.sqlite3*
+*.sqlite3
+__pycache__/
+*.pyc

@@ -657,7 +657,7 @@ main {
 }
 
 .school-delete-list article {
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) minmax(280px, 2fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(280px, 2fr) auto;
   align-items: center;
 }
 
@@ -978,50 +978,25 @@ th {
   font-weight: 900;
 }
 
-.invoice-preview {
-  display: grid;
-  gap: 16px;
-  padding: 18px;
+.cart-total-panel {
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff, #f5ffff);
+  background: #f8fefe;
 }
 
-.invoice-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.invoice-head img {
-  width: 180px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-}
-
-.invoice-preview dl {
-  display: grid;
-  gap: 10px;
+.cart-total-panel dl {
   margin: 0;
 }
 
-.invoice-preview dl div {
+.cart-total-panel dl div {
   display: flex;
   justify-content: space-between;
   gap: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
 }
 
-.invoice-preview dt {
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.invoice-preview dd {
+.cart-total-panel dd {
   margin: 0;
-  text-align: right;
   font-weight: 900;
 }
 
@@ -1262,7 +1237,7 @@ th {
 
 .kanban {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
 }
 
@@ -1276,7 +1251,16 @@ th {
 
 .kanban h3 {
   font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+.kanban section > p {
+  min-height: 42px;
   margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .kanban article {
@@ -1294,6 +1278,37 @@ th {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.exchange-messages {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f6fbfb;
+}
+
+.exchange-messages p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.kanban-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.kanban-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.82rem;
 }
 
 .leadership-layout {

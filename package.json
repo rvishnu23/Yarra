@@ -6,7 +6,13 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
+    "dev": "node scripts/dev-server.js start",
+    "dev:start": "node scripts/dev-server.js start",
+    "dev:stop": "node scripts/dev-server.js stop",
+    "dev:restart": "node scripts/dev-server.js restart",
+    "dev:status": "node scripts/dev-server.js status",
+    "django:setup": "python manage.py migrate && python manage.py import_json --clear",
+    "django:dev": "python scripts/django-server.py",
     "migrate": "node scripts/migrate.js"
   },
   "engines": {

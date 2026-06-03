@@ -150,6 +150,14 @@ const api = {
     });
     return handleResponse(response, "Action failed");
   },
+  async update(path, payload) {
+    const response = await fetch(path, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(response, "Update failed");
+  },
   async delete(path) {
     const response = await fetch(path, {
       method: "DELETE",
@@ -215,8 +223,8 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
   Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
@@ -242,28 +250,21 @@ const tutorialModuleDetails = {
     goal: "Review membership, school summary, invoices, events, and student invitations.",
     challenge: "Find where membership status and recent invoices will appear after onboarding.",
     target: "#schoolDashboard .school-dashboard-grid",
-    actions: ["Review school summary and student count.", "Check membership status and renewal area.", "Use Invite student when manually onboarding a learner.", "Recent invoices appear in the finance panel."]
+    actions: ["Review school summary and student count.", "Check membership status and renewal area.", "Use User management to onboard learners.", "Recent invoices appear in the finance panel."]
   },
   onboarding: {
     title: "School onboarding",
     goal: "Register a school and start membership activation through Razorpay or UPI.",
     challenge: "Look through school details, board affiliation, school type, and payment amount.",
     target: "#schoolForm",
-    actions: ["Enter the real school name and billing email.", "Select board affiliation and school type.", "Tick Early Years only for eligible schools.", "Set the membership fee, then collect the school's payment."]
+    actions: ["Enter the real school name and billing email.", "Select board affiliation and school type.", "Set the membership fee, then collect the school's payment."]
   },
   payments: {
     title: "Payments and invoices",
-    goal: "Record payments, review transaction history, and preview invoices.",
+    goal: "Record payments and review transaction history.",
     challenge: "Open the payment form and identify invoice, amount, status, and method fields.",
     target: "#payments .section-bar",
-    actions: ["Click Record payment to add an offline or manual payment.", "Review invoice number, school, amount, and status.", "Click View invoice to preview before download."]
-  },
-  students: {
-    title: "Student users",
-    goal: "Invite students and manage age-gated access.",
-    challenge: "Find the Add student action and the guardian email/access details on student cards.",
-    target: "#students .section-bar",
-    actions: ["Click Add student for a single manual invite.", "Use User management for bulk Excel onboarding.", "Check age because student content is filtered by age.", "Guardian email is required for real student access."]
+    actions: ["Click Record payment to add an offline or manual payment.", "Review invoice number, school, amount, and status."]
   },
   events: {
     title: "Events",
@@ -274,10 +275,10 @@ const tutorialModuleDetails = {
   },
   exchange: {
     title: "Exchange programs",
-    goal: "Post and track teacher or student exchange opportunities.",
-    challenge: "Scan the Open, Under Review, Matched, and Completed columns.",
+    goal: "Create, verify, match, coordinate, and close teacher or student exchanges.",
+    challenge: "Scan the full exchange lifecycle from Draft to Feedback Submitted.",
     target: "#exchange .kanban",
-    actions: ["Click Post exchange slot.", "Choose Teacher or Student exchange.", "Track opportunities across Open, Under Review, Matched, and Completed."]
+    actions: ["Create a draft exchange request.", "Submit it for Yarra approval.", "Track applications, school approvals, coordination messages, activity updates, completion, and feedback."]
   },
   leadership: {
     title: "Leadership Connect",
@@ -310,9 +311,9 @@ const tutorialModuleDetails = {
   library: {
     title: "Content library",
     goal: "Search and filter workshops, podcasts, webinars, and articles.",
-    challenge: "Try the search box and filter chips, then notice Early Years tags.",
+    challenge: "Try the search box and filter chips, then review member content by format.",
     target: "#library .section-bar",
-    actions: ["Search by title, speaker, or tag.", "Use filter chips for workshops, podcasts, articles, and webinars.", "Early Years tagged content should only appear for entitled schools."]
+    actions: ["Search by title, speaker, or tag.", "Use filter chips for workshops, podcasts, articles, and webinars.", "Review content by audience and age range."]
   },
   vendorSignup: {
     title: "Vendor sign-up",
@@ -387,8 +388,6 @@ const profileEditButton = document.querySelector("#profileEditButton");
 const teacherResourceButton = document.querySelector("#teacherResourceButton");
 const reviewCycleButton = document.querySelector("#reviewCycleButton");
 const paymentPanel = document.querySelector(".payment-panel");
-const invoicePanel = document.querySelector(".invoice-panel");
-const studentGrid = document.querySelector("#studentGrid");
 const paymentConfig = document.querySelector("#paymentConfig");
 const paymentRescueButton = document.querySelector("#paymentRescueButton");
 const uploadType = document.querySelector("#uploadType");
@@ -658,8 +657,6 @@ const applyRolePermissions = () => {
   });
   document.querySelector("#eventButton").hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
   document.querySelector("#paymentButton").hidden = !["Super Admin", "School Admin"].includes(role);
-  document.querySelector("#studentButton").hidden = !["Super Admin", "School Admin"].includes(role);
-  document.querySelector("#inviteStudentButton").hidden = !["Super Admin", "School Admin"].includes(role);
   contentPostButton.hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
   leaderThreadButton.hidden = !["Super Admin", "School Admin"].includes(role);
   leaderTakeawayButton.hidden = !["Super Admin", "School Admin"].includes(role);
@@ -826,7 +823,7 @@ const renderMetrics = () => {
       <p>${state.events.filter((event) => event.paid).length} paid registrations open</p>
     </article>
     <article class="metric">
-      <span>Student users</span>
+      <span>Students</span>
       <strong>${metrics.students || 0}</strong>
       <p>${(state.students || []).filter((student) => student.status === "Invited").length} invitations pending</p>
     </article>
@@ -892,6 +889,100 @@ const renderDashboard = () => {
 
 const schoolName = (id) => state.schools.find((school) => school.id === id)?.name || "Member school";
 
+const canManageEvent = (event) =>
+  Boolean(
+    event &&
+      ["Super Admin", "School Admin"].includes(currentRole()) &&
+      (currentRole() === "Super Admin" || event.schoolId === currentSession()?.schoolId)
+  );
+
+const currentSchool = () => state.schools[0] || null;
+
+const exchangeOwnerName = (exchange) => exchange.fromSchool || schoolName(exchange.fromSchoolId);
+
+const isOwnExchange = (exchange) => {
+  const school = currentSchool();
+  if (currentRole() === "Super Admin") return true;
+  return Boolean(school && (exchange.fromSchoolId === school.id || exchange.fromSchool === school.name));
+};
+
+const canAlterExchange = (exchange) => Boolean(exchange && (currentRole() === "Super Admin" || isOwnExchange(exchange)));
+
+const exchangeStatuses = [
+  "Draft",
+  "Pending Yarra Approval",
+  "Open",
+  "Applied",
+  "School Review",
+  "Matched",
+  "Ongoing",
+  "Completed",
+  "Feedback Submitted"
+];
+
+const exchangeStatusCopy = {
+  Draft: "Created by the hosting school before it is sent to Yarra.",
+  "Pending Yarra Approval": "Yarra verifies safety, suitability, and completeness.",
+  Open: "Visible to other schools for applications.",
+  Applied: "Another school has applied with participant details and reason.",
+  "School Review": "Both school admins must approve the match.",
+  Matched: "Both schools approved. School admins can coordinate here.",
+  Ongoing: "Schools record attendance and activity updates.",
+  Completed: "Exchange finished. Both schools submit report and feedback.",
+  "Feedback Submitted": "Completion report, outcomes, and feedback are stored."
+};
+
+const canReviewExchange = (exchange) =>
+  Boolean(currentRole() === "School Admin" && currentSchool() && !isOwnExchange(exchange) && exchange.status === "Open");
+
+const canProgressExchange = (exchange) =>
+  Boolean(
+    currentRole() === "Super Admin" ||
+      (currentRole() === "School Admin" &&
+        currentSchool() &&
+        (isOwnExchange(exchange) || exchange.reviewSchoolId === currentSchool().id))
+  );
+
+const canApproveExchangeMatch = (exchange) =>
+  Boolean(
+    exchange &&
+      ["Applied", "School Review"].includes(exchange.status) &&
+      (currentRole() === "Super Admin" ||
+        (currentRole() === "School Admin" && currentSchool() && [exchange.fromSchoolId, exchange.reviewSchoolId].includes(currentSchool().id)))
+  );
+
+const exchangeApprovalLabel = (exchange) => {
+  const approvals = exchange.approvals || {};
+  const owner = approvals[exchange.fromSchoolId] ? "host approved" : "host pending";
+  const reviewer = exchange.reviewSchoolId ? (approvals[exchange.reviewSchoolId] ? "applicant approved" : "applicant pending") : "no applicant";
+  return `${owner} - ${reviewer}`;
+};
+
+const exchangeNextStatus = (exchange) => {
+  const transitions = {
+    Draft: "Pending Yarra Approval",
+    "Pending Yarra Approval": "Open",
+    Matched: "Ongoing",
+    Ongoing: "Completed",
+    Completed: "Feedback Submitted"
+  };
+  return transitions[exchange.status];
+};
+
+const canMoveExchange = (exchange, nextStatus) => {
+  if (!nextStatus) return false;
+  if (nextStatus === "Open") return currentRole() === "Super Admin";
+  return canProgressExchange(exchange);
+};
+
+const canCoordinateExchange = (exchange) =>
+  Boolean(
+    exchange &&
+      ["Matched", "Ongoing", "Completed", "Feedback Submitted"].includes(exchange.status) &&
+      (currentRole() === "Super Admin" ||
+        (currentRole() === "School Admin" && currentSchool() && [exchange.fromSchoolId, exchange.reviewSchoolId].includes(currentSchool().id)))
+  );
+
 const schoolDeletionSummary = (school) => {
   const eventIds = (state.events || [])
     .filter((event) => event.schoolId === school.id || event.host === school.name)
@@ -932,10 +1023,9 @@ const renderSchoolDeletePanel = () => {
         return `
           <article>
             <strong>${school.name}</strong>
-            <span>ID: ${school.id}</span>
             <span>Admin mail: ${school.contact || "Not added"}</span>
             <span>Linked records: ${total} (${Object.entries(counts).map(([key, value]) => `${key} ${value}`).join(", ")})</span>
-            <button class="ghost-button delete-school-button" type="button" data-id="${school.id}" data-name="${escapeAttribute(school.name)}">Delete school and data</button>
+            <button class="ghost-button delete-school-button" type="button" data-id="${school.id}" data-name="${escapeAttribute(school.name)}">Delete school</button>
           </article>
         `;
       }).join("") : `<article><strong>No schools</strong><span>There are no school records to delete.</span></article>`}
@@ -963,7 +1053,7 @@ const renderSchoolDashboard = () => {
     <div class="summary-grid">
       <article><strong>${schoolStudents.length}</strong><span>Students</span></article>
       <article><strong>${state.exchanges.filter((item) => item.fromSchool === school.name).length}</strong><span>Exchange posts</span></article>
-      <article><strong>${school.earlyYears ? "Yes" : "No"}</strong><span>Early Years</span></article>
+      <article><strong>${school.type || "K-12"}</strong><span>School type</span></article>
     </div>
     <ul class="clean-list">
       ${school.achievements.map((item) => `<li>${item}</li>`).join("")}
@@ -1046,19 +1136,22 @@ document.querySelector("#schoolDashboard").addEventListener("click", async (even
   const schoolId = deleteButton.dataset.id;
   const school = (state.schools || []).find((item) => item.id === schoolId);
   if (!school) return;
-  const counts = schoolDeletionSummary(school);
-  const summary = Object.entries(counts).map(([key, value]) => `${key}: ${value}`).join("\n");
-  const confirmation = window.prompt(
-    `Delete ${school.name} and all linked local data?\n\nSchool ID: ${school.id}\nAdmin mail: ${school.contact || "Not added"}\n\nLinked data:\n${summary}\n\nType DELETE ${school.name} to confirm.`
-  );
-  if (confirmation !== `DELETE ${school.name}`) {
-    showToast("School delete cancelled.");
-    return;
+  deleteButton.disabled = true;
+  try {
+    const result = await api.delete(`/api/schools/${school.id}`);
+    const totalRemoved = Object.values(result.removed || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+    showToast(`${school.name} deleted. ${totalRemoved} linked records removed.`);
+    try {
+      await refresh();
+    } catch (refreshError) {
+      console.warn(refreshError);
+      window.setTimeout(() => window.location.reload(), 700);
+    }
+  } catch (error) {
+    showToast(error.message || "School delete failed.");
+  } finally {
+    deleteButton.disabled = false;
   }
-  const result = await api.delete(`/api/schools/${school.id}`);
-  const totalRemoved = Object.values(result.removed || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-  showToast(`${school.name} deleted. ${totalRemoved} linked records removed.`);
-  await refresh();
 });
 
 const renderEvents = () => {
@@ -1099,7 +1192,9 @@ const renderEvents = () => {
             className: "project-card",
             action: `
               ${currentRole() === "Student" ? `<button class="primary-button register-event" type="button" data-id="${event.id}">${event.paid ? "Register and pay" : "Register"}</button>` : ""}
-              ${["School Admin", "Teacher", "Super Admin"].includes(currentRole()) && (currentRole() === "Super Admin" || event.schoolId === currentSession()?.schoolId) ? `<button class="ghost-button manage-event" type="button" data-id="${event.id}">Manage registrations</button>` : ""}
+              ${canManageEvent(event) ? `<button class="ghost-button manage-event" type="button" data-id="${event.id}">Manage registrations</button>` : ""}
+              ${canManageEvent(event) ? `<button class="ghost-button edit-event" type="button" data-id="${event.id}">Edit</button>` : ""}
+              ${canManageEvent(event) ? `<button class="ghost-button delete-event" type="button" data-id="${event.id}">Delete</button>` : ""}
             `
           })
         )
@@ -1109,26 +1204,57 @@ const renderEvents = () => {
 };
 
 const renderExchange = () => {
-  const columns = ["Open", "Under Review", "Matched", "Completed"];
-  document.querySelector(".kanban").innerHTML = columns
+  document.querySelector(".kanban").innerHTML = exchangeStatuses
     .map((status) => {
-      const items = state.exchanges.filter((exchange) => exchange.status === status);
+      const items = state.exchanges.filter((exchange) => exchange.status === status && exchange.title);
       return `
         <section>
           <h3>${status}</h3>
+          <p>${exchangeStatusCopy[status]}</p>
           ${
             items.length
               ? items
                   .map(
-                    (exchange) => `
-                      <article>
-                        ${exchange.title}
-                        <span>${exchange.type} - ${exchange.subject} - ${exchange.duration}</span>
+                    (exchange) => {
+                      const nextStatus = exchangeNextStatus(exchange);
+                      return `
+                      <article data-id="${exchange.id}">
+                        <strong>${escapeAttribute(exchange.title || "Untitled exchange request")}</strong>
+                        <span>${exchange.type || "Exchange"} - ${exchange.subject || "Subject pending"} - Grade ${exchange.grade || "any"} - ${exchange.duration || "Duration pending"}</span>
+                        <span>${exchange.dateRange || "Dates pending"} - ${exchange.mode || "Mode pending"}${exchange.location ? ` - ${exchange.location}` : ""}</span>
+                        <span>Objective: ${exchange.objective || "Objective pending"}</span>
+                        <span>Capacity: ${exchange.capacity || "Not set"} - From ${exchangeOwnerName(exchange)}${exchange.reviewSchool ? ` - Applicant: ${exchange.reviewSchool}` : ""}</span>
+                        ${["Applied", "School Review", "Matched"].includes(exchange.status) ? `<span>${exchangeApprovalLabel(exchange)}</span>` : ""}
+                        ${exchange.participants ? `<span>Participants: ${exchange.participants}</span>` : ""}
+                        ${exchange.contactPerson ? `<span>Contact: ${exchange.contactPerson}</span>` : ""}
+                        ${
+                          exchange.messages?.length
+                            ? `<div class="exchange-messages">${exchange.messages
+                                .slice(-3)
+                                .map((message) => `<p><strong>${escapeAttribute(message.school || message.author || "School")}</strong>: ${escapeAttribute(message.message)}</p>`)
+                                .join("")}</div>`
+                            : canCoordinateExchange(exchange)
+                              ? `<span>No coordination messages yet.</span>`
+                              : ""
+                        }
+                        ${exchange.activityUpdates?.length ? `<span>Latest update: ${exchange.activityUpdates.at(-1).note}</span>` : ""}
+                        ${exchange.feedback?.length ? `<span>Feedback: ${exchange.feedback.at(-1).notes}</span>` : ""}
+                        <div class="kanban-actions">
+                          ${canReviewExchange(exchange) ? `<button class="primary-button review-exchange" type="button" data-id="${exchange.id}">Apply from ${currentSchool()?.name}</button>` : ""}
+                          ${canApproveExchangeMatch(exchange) ? `<button class="primary-button approve-exchange" type="button" data-id="${exchange.id}">Approve match</button>` : ""}
+                          ${canCoordinateExchange(exchange) ? `<button class="primary-button message-exchange" type="button" data-id="${exchange.id}">Message</button>` : ""}
+                          ${nextStatus && canMoveExchange(exchange, nextStatus) ? `<button class="ghost-button progress-exchange" type="button" data-id="${exchange.id}" data-status="${nextStatus}">${nextStatus === "Open" ? "Approve by Yarra" : `Move to ${nextStatus}`}</button>` : ""}
+                          ${canAlterExchange(exchange) ? `<button class="ghost-button edit-exchange" type="button" data-id="${exchange.id}">Edit</button>` : ""}
+                          ${canAlterExchange(exchange) ? `<button class="ghost-button delete-exchange" type="button" data-id="${exchange.id}">Delete</button>` : ""}
+                          ${currentRole() === "School Admin" && exchange.status === "Draft" && isOwnExchange(exchange) ? `<span>Submit to Yarra when ready</span>` : ""}
+                          ${currentRole() === "School Admin" && exchange.status === "Open" && isOwnExchange(exchange) ? `<span>Waiting for another school to apply</span>` : ""}
+                        </div>
                       </article>
-                    `
+                    `;
+                    }
                   )
                   .join("")
-              : `<article>No items yet <span>Create one from this board</span></article>`
+              : `<article>No items yet <span>${exchangeStatusCopy[status]}</span></article>`
           }
         </section>
       `;
@@ -1296,7 +1422,7 @@ const renderSchoolNetwork = () => {
         <article class="panel">
           <p class="eyebrow">${school.board || "Board pending"} - ${school.city || "City pending"}</p>
           <h3>${school.name}</h3>
-          <p>${school.type || "School type pending"} member profile. ${school.earlyYears ? "Early Years enabled." : "Early Years not enabled."}</p>
+          <p>${school.type || "School type pending"} member profile.</p>
           <div class="tag-list">
             ${(school.achievements || ["Profile setup pending"]).map((item) => `<span>${item}</span>`).join("")}
           </div>
@@ -1361,7 +1487,7 @@ const renderLibrary = () => {
                     ? `<div class="podcast-preview"><span>Audio</span><p>${item.body || "Podcast episode"}</p></div>`
                     : `<div class="post-media"><img src="${media}" alt=""></div>`}
               <p class="post-copy">${item.body || "Shared with the Yarra community."}</p>
-              ${tagList([...item.tags, item.restrictedToEarlyYears ? "Early Years only" : "All members"])}
+              ${tagList([...item.tags, "All members"])}
               <div class="post-actions">
                 <button class="ghost-button content-like" type="button" data-id="${item.id}">Like ${item.likes}</button>
                 <button class="ghost-button content-comment" type="button" data-id="${item.id}">Comment ${item.comments}</button>
@@ -1470,28 +1596,7 @@ const renderVendors = () => {
     : `<article class="panel"><h3>No products yet</h3><p>Vendor uploaded products and pricing will appear here.</p></article>`;
 };
 
-const invoiceMarkup = (payment) => `
-  <div class="invoice-preview">
-    <div class="invoice-head">
-      <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
-      <div>
-        <p class="eyebrow">Tax invoice</p>
-        <h3>${payment.invoice}</h3>
-      </div>
-    </div>
-    <dl>
-      <div><dt>School</dt><dd>${schoolName(payment.schoolId)}</dd></div>
-      <div><dt>Payment type</dt><dd>${payment.type}</dd></div>
-      <div><dt>Amount</dt><dd>${money(payment.amount)}</dd></div>
-      <div><dt>Status</dt><dd>${payment.status}</dd></div>
-      <div><dt>Date</dt><dd>${payment.createdAt}</dd></div>
-      <div><dt>Method</dt><dd>${payment.method || "Razorpay"}</dd></div>
-    </dl>
-  </div>
-`;
-
 const renderPayments = () => {
-  const latest = state.payments[0];
   paymentPanel.innerHTML = `
     <div class="panel-heading">
       <div>
@@ -1508,7 +1613,6 @@ const renderPayments = () => {
             <th>Type</th>
             <th>Amount</th>
             <th>Status</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -1521,7 +1625,6 @@ const renderPayments = () => {
                   <td>${payment.type}</td>
                   <td>${money(payment.amount)}</td>
                   <td><span class="status-pill">${payment.status}</span></td>
-                  <td><button class="ghost-button invoice-action" type="button" data-id="${payment.id}">View invoice</button></td>
                 </tr>
               `
             )
@@ -1529,17 +1632,6 @@ const renderPayments = () => {
         </tbody>
       </table>
     </div>
-  `;
-
-  invoicePanel.innerHTML = `
-    <div class="panel-heading">
-      <div>
-        <p class="eyebrow">Invoice preview</p>
-        <h2>Generated invoice</h2>
-      </div>
-    </div>
-    ${latest ? invoiceMarkup(latest) : "<p>No invoices yet.</p>"}
-    ${latest ? `<button class="primary-button" id="downloadInvoiceButton" type="button">Download invoice</button>` : ""}
   `;
 };
 
@@ -1555,42 +1647,22 @@ const renderPaymentConfig = () => {
   }
 };
 
-const renderStudents = () => {
-  const students = state.students || [];
-  studentGrid.innerHTML = students.length
-    ? students
-        .map(
-          (student) => `
-        <article class="student-card">
-          <div>
-            <p class="eyebrow">${student.grade} - age ${student.age}</p>
-            <h3>${student.name}</h3>
-            <p>${schoolName(student.schoolId)}</p>
-          </div>
-          <span class="status-pill">${student.status}</span>
-          ${tagList(student.access || [])}
-          <p class="panel-copy">Login: ${student.email || student.studentEmail || student.guardianEmail}</p>
-          <p class="panel-copy">Guardian: ${student.guardianEmail}</p>
-        </article>
-      `
-        )
-        .join("")
-    : `<article class="panel"><h3>No students yet</h3><p>Use User management or Add student to onboard learners manually.</p></article>`;
-};
-
 const renderProfiles = () => {
+  const profileCard = document.querySelector("#profiles .school-profile div");
+  const profileHighlights = document.querySelector("#profiles .clean-list");
+  if (!profileCard || !profileHighlights) return;
   const activeSchool = state.schools[0];
   if (!activeSchool) {
-    document.querySelector(".school-profile div").innerHTML = `<p class="eyebrow">No profile yet</p><h3>Add your first school</h3><p>School profile details appear after onboarding.</p>`;
-    document.querySelector(".clean-list").innerHTML = `<li>No highlights added yet</li>`;
+    profileCard.innerHTML = `<p class="eyebrow">No profile yet</p><h3>Add your first school</h3><p>School profile details appear after onboarding.</p>`;
+    profileHighlights.innerHTML = `<li>No highlights added yet</li>`;
     return;
   }
-  document.querySelector(".school-profile div").innerHTML = `
+  profileCard.innerHTML = `
     <p class="eyebrow">${activeSchool.board} - ${activeSchool.city}</p>
     <h3>${activeSchool.name}</h3>
     <p>${activeSchool.name} is a ${activeSchool.type} member school with ${activeSchool.status.toLowerCase()} consortium access.</p>
   `;
-  document.querySelector(".clean-list").innerHTML = activeSchool.achievements
+  profileHighlights.innerHTML = activeSchool.achievements
     .map((achievement) => `<li>${achievement}</li>`)
     .join("");
 };
@@ -1636,7 +1708,6 @@ const renderAll = () => {
   renderSchoolNetwork();
   renderPayments();
   renderPaymentConfig();
-  renderStudents();
   renderProfiles();
   renderNotifications();
   renderUploadHistory();
@@ -1890,7 +1961,7 @@ const modal = (title, fields, onSubmit) => {
                 <label>
                   ${field.label}
                   <select name="${field.name}">
-                    ${field.options.map((option) => `<option>${option}</option>`).join("")}
+                    ${field.options.map((option) => `<option ${option === field.value ? "selected" : ""}>${option}</option>`).join("")}
                   </select>
                 </label>
               `;
@@ -2013,8 +2084,7 @@ document.querySelector("#schoolForm").addEventListener("submit", async (event) =
     board: formData.get("board"),
     type: formData.get("type"),
     city: "Bengaluru",
-    contact: String(formData.get("billingEmail") || "admin@school.edu").trim().toLowerCase(),
-    earlyYears: event.currentTarget.querySelector('input[type="checkbox"]').checked
+    contact: String(formData.get("billingEmail") || "admin@school.edu").trim().toLowerCase()
   };
   const amount = Math.max(1, Number(formData.get("amount") || 1));
   try {
@@ -2214,32 +2284,6 @@ commitUploadButton.addEventListener("click", async () => {
   await refresh();
 });
 
-studentGrid.addEventListener("click", () => {});
-
-const openStudentModal = () => {
-  modal(
-    "Add student user",
-    [
-      { label: "Student name", name: "name", required: true },
-      { label: "Student email for login", name: "email", type: "email", required: true },
-      { label: "Grade", name: "grade", type: "select", options: ["Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"] },
-      { label: "Age", name: "age", type: "number", value: "13", required: true },
-      { label: "Guardian email", name: "guardianEmail", type: "email", required: true }
-    ],
-    async (payload) => {
-      await api.create("students", {
-        ...payload,
-        email: String(payload.email || "").trim().toLowerCase(),
-        schoolId: state.schools[0]?.id
-      });
-      showToast(`Student login invited for ${payload.email}.`);
-    }
-  );
-};
-
-document.querySelector("#studentButton").addEventListener("click", openStudentModal);
-document.querySelector("#inviteStudentButton").addEventListener("click", openStudentModal);
-
 profileEditButton.addEventListener("click", () => {
   const { role, school, student, teacher, displayName } = signedInProfile();
   modal(
@@ -2361,7 +2405,7 @@ const openCartModal = () => {
           </article>
         `).join("") : `<article><strong>Cart is empty</strong><span>Add products before checkout.</span></article>`}
       </div>
-      <div class="invoice-preview">
+      <div class="cart-total-panel">
         <dl><div><dt>Total</dt><dd>${money(total)}</dd></div></dl>
       </div>
       <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Place order</button>
@@ -2461,7 +2505,6 @@ const openContentPostModal = () => {
         </label>
         <label>Minimum student age<input name="minAge" type="number" min="3" value="5"></label>
         <label>Maximum student age<input name="maxAge" type="number" min="3" value="18"></label>
-        <label class="checkbox-line"><input name="restrictedToEarlyYears" type="checkbox"> Early Years only</label>
         <label class="wide-field">Caption / article body<textarea name="body" rows="6" placeholder="Write the story, article, video caption, or update..."></textarea></label>
       </div>
       <button class="primary-button" type="submit">Publish to feed</button>
@@ -2492,8 +2535,7 @@ const openContentPostModal = () => {
         tags: String(formData.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean),
         audience: audienceMap[formData.get("audience")] || audienceMap.all,
         minAge: formData.get("minAge"),
-        maxAge: formData.get("maxAge"),
-        restrictedToEarlyYears: formData.get("restrictedToEarlyYears") === "on"
+        maxAge: formData.get("maxAge")
       });
       overlay.remove();
       showToast("Post published to the Content Library feed.");
@@ -2653,10 +2695,11 @@ const questionEditorTemplate = (question, index) => `
   </article>
 `;
 
-const openEventBuilderModal = () => {
+const openEventBuilderModal = (existingEvent = null) => {
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
-  let questions = defaultEventQuestionFields.map(normalizeEventQuestion);
+  const isEditing = Boolean(existingEvent);
+  let questions = (existingEvent?.registrationQuestions?.length ? existingEvent.registrationQuestions : defaultEventQuestionFields).map(normalizeEventQuestion);
   const renderQuestions = () => {
     overlay.querySelector(".form-builder-questions").innerHTML = questions.map(questionEditorTemplate).join("");
   };
@@ -2664,8 +2707,8 @@ const openEventBuilderModal = () => {
     <form class="modal-card form-builder-modal">
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">School Admin event setup</p>
-          <h2>Create event and registration form</h2>
+          <p class="eyebrow">${isEditing ? "Event controls" : "School Admin event setup"}</p>
+          <h2>${isEditing ? "Edit event and registration form" : "Create event and registration form"}</h2>
         </div>
         <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
       </div>
@@ -2705,9 +2748,28 @@ const openEventBuilderModal = () => {
         </div>
         <div class="form-builder-questions"></div>
       </div>
-      <button class="primary-button" type="submit">Publish event form</button>
+      <button class="primary-button" type="submit">${isEditing ? "Save event changes" : "Publish event form"}</button>
     </form>
   `;
+  if (existingEvent) {
+    const form = overlay.querySelector("form");
+    form.elements.title.value = existingEvent.title || "";
+    form.elements.type.value = existingEvent.type || "Workshop";
+    form.elements.scope.value = existingEvent.scope || "Intra school";
+    form.elements.format.value = existingEvent.format || "Virtual";
+    form.elements.date.value = existingEvent.date || "";
+    form.elements.registrationDeadline.value = existingEvent.registrationDeadline || "";
+    form.elements.startTime.value = existingEvent.startTime || "";
+    form.elements.endTime.value = existingEvent.endTime || "";
+    form.elements.venue.value = existingEvent.venue || "";
+    form.elements.capacity.value = existingEvent.capacity || 100;
+    form.elements.coordinatorName.value = existingEvent.coordinatorName || "";
+    form.elements.coordinatorEmail.value = existingEvent.coordinatorEmail || "";
+    form.elements.eligibility.value = existingEvent.eligibility || "";
+    form.elements.fee.value = existingEvent.fee || 0;
+    form.elements.paid.checked = Boolean(existingEvent.paid);
+    form.elements.description.value = existingEvent.description || "";
+  }
   renderQuestions();
   overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
   overlay.addEventListener("click", (clickEvent) => {
@@ -2754,7 +2816,7 @@ const openEventBuilderModal = () => {
     }).filter((question) => question.label);
     const formHeaderImage = await fileToDataUrl(formData.get("formHeaderImage"));
     try {
-      await api.create("events", {
+      const payload = {
         title: formData.get("title"),
         type: formData.get("type"),
         scope: formData.get("scope"),
@@ -2772,11 +2834,16 @@ const openEventBuilderModal = () => {
         coordinatorEmail: formData.get("coordinatorEmail"),
         description: formData.get("description"),
         paid: formData.get("paid") === "on",
-        formHeaderImage,
+        formHeaderImage: formHeaderImage || existingEvent?.formHeaderImage || null,
         registrationQuestions
-      });
+      };
+      if (isEditing) {
+        await api.update(`/api/events/${existingEvent.id}`, payload);
+      } else {
+        await api.create("events", payload);
+      }
       overlay.remove();
-      showToast("Event form published. Students will complete it before registration.");
+      showToast(isEditing ? "Event updated." : "Event form published. Students will complete it before registration.");
       await refresh();
     } catch (error) {
       showToast(error.message);
@@ -3015,6 +3082,8 @@ const openStudentEventRegistrationForm = (eventItem) => {
 document.querySelector("#eventsGrid").addEventListener("click", async (event) => {
   const registerButton = event.target.closest(".register-event");
   const manageButton = event.target.closest(".manage-event");
+  const editButton = event.target.closest(".edit-event");
+  const deleteButton = event.target.closest(".delete-event");
   if (registerButton) {
     const eventItem = state.events.find((item) => item.id === registerButton.dataset.id);
     if (eventItem) openStudentEventRegistrationForm(eventItem);
@@ -3022,23 +3091,192 @@ document.querySelector("#eventsGrid").addEventListener("click", async (event) =>
   if (manageButton) {
     openEventRegistrationsModal(manageButton.dataset.id);
   }
+  if (editButton) {
+    const eventItem = state.events.find((item) => item.id === editButton.dataset.id);
+    if (eventItem) openEventBuilderModal(eventItem);
+  }
+  if (deleteButton) {
+    const eventItem = state.events.find((item) => item.id === deleteButton.dataset.id);
+    if (!eventItem) return;
+    deleteButton.disabled = true;
+    try {
+      const result = await api.delete(`/api/events/${eventItem.id}`);
+      showToast(`${eventItem.title} deleted. ${result.removed?.registrations || 0} registrations removed.`);
+      await refresh();
+    } catch (error) {
+      showToast(error.message || "Event delete failed.");
+    } finally {
+      deleteButton.disabled = false;
+    }
+  }
 });
 
 document.querySelector("#exchangeButton").addEventListener("click", () => {
   modal(
-    "Post exchange slot",
+    "Create exchange request",
     [
       { label: "Title", name: "title", required: true },
-      { label: "Type", name: "type", type: "select", options: ["Teacher", "Student"] },
-      { label: "Subject or grade", name: "subject", required: true },
+      { label: "Exchange type", name: "type", type: "select", options: ["Teacher", "Student"] },
+      { label: "Subject", name: "subject", required: true },
+      { label: "Grade", name: "grade", value: "8" },
       { label: "Duration", name: "duration", value: "5 days" },
+      { label: "Objective", name: "objective", type: "textarea", rows: 3, required: true },
+      { label: "Date range", name: "dateRange", value: "Next term" },
+      { label: "Capacity", name: "capacity", type: "number", value: "20" },
+      { label: "Mode", name: "mode", type: "select", options: ["Online", "In-person", "Hybrid"] },
+      { label: "Location", name: "location", value: "Online" },
       { label: "From school", name: "fromSchool", value: state.schools[0]?.name || "" }
     ],
     async (payload) => {
       await api.create("exchanges", payload);
-      showToast("Exchange slot posted with Open status.");
+      showToast("Exchange request saved as Draft. Submit it to Yarra when ready.");
     }
   );
+});
+
+const openExchangeEditModal = (exchange) => {
+  modal(
+    "Edit exchange request",
+    [
+      { label: "Title", name: "title", value: exchange.title || "", required: true },
+      { label: "Exchange type", name: "type", type: "select", value: exchange.type || "Teacher", options: ["Teacher", "Student"] },
+      { label: "Subject", name: "subject", value: exchange.subject || "", required: true },
+      { label: "Grade", name: "grade", value: exchange.grade || "8" },
+      { label: "Duration", name: "duration", value: exchange.duration || "5 days" },
+      { label: "Objective", name: "objective", type: "textarea", rows: 3, value: exchange.objective || "", required: true },
+      { label: "Date range", name: "dateRange", value: exchange.dateRange || "Next term" },
+      { label: "Capacity", name: "capacity", type: "number", value: exchange.capacity || "20" },
+      { label: "Mode", name: "mode", type: "select", value: exchange.mode || "Online", options: ["Online", "In-person", "Hybrid"] },
+      { label: "Location", name: "location", value: exchange.location || "Online" },
+      { label: "From school", name: "fromSchool", value: exchange.fromSchool || currentSchool()?.name || "" }
+    ],
+    async (payload) => {
+      await api.update(`/api/exchanges/${exchange.id}`, payload);
+      showToast("Exchange request updated.");
+    }
+  );
+};
+
+const openExchangeApplicationModal = (exchange) => {
+  modal(
+    `Apply for ${exchange.title}`,
+    [
+      { label: "Proposed teacher/student details", name: "proposedParticipants", type: "textarea", rows: 3, required: true },
+      { label: "Reason for applying", name: "reason", type: "textarea", rows: 3, required: true },
+      { label: "Contact person", name: "contactPerson", value: currentSession()?.email || "" }
+    ],
+    async (payload) => {
+      await api.post(`/api/exchanges/${exchange.id}/review`, payload);
+      showToast(`${currentSchool()?.name || "Your school"} applied for ${exchange.title}.`);
+    }
+  );
+};
+
+const openExchangeMessageModal = (exchange) => {
+  modal(
+    `Message ${exchange.reviewSchool || "matched school"}`,
+    [{ label: "Coordination message", name: "message", type: "textarea", rows: 4, required: true }],
+    async (payload) => {
+      await api.post(`/api/exchanges/${exchange.id}/message`, payload);
+      showToast("Message posted to the exchange thread.");
+    }
+  );
+};
+
+const openExchangeActivityModal = (exchange, nextStatus) => {
+  modal(
+    `Start ${exchange.title}`,
+    [{ label: "Attendance or activity update", name: "activityUpdate", type: "textarea", rows: 3, required: true }],
+    async (payload) => {
+      await api.post(`/api/exchanges/${exchange.id}/status`, { ...payload, status: nextStatus });
+      showToast(`${exchange.title} moved to ${nextStatus}.`);
+    }
+  );
+};
+
+const openExchangeCompletionModal = (exchange, nextStatus) => {
+  modal(
+    `Complete ${exchange.title}`,
+    [{ label: "Completion note", name: "completionNote", type: "textarea", rows: 3, required: true }],
+    async (payload) => {
+      await api.post(`/api/exchanges/${exchange.id}/status`, { ...payload, status: nextStatus });
+      showToast(`${exchange.title} moved to ${nextStatus}.`);
+    }
+  );
+};
+
+const openExchangeFeedbackModal = (exchange, nextStatus) => {
+  modal(
+    `Feedback for ${exchange.title}`,
+    [
+      { label: "Feedback", name: "feedback", type: "textarea", rows: 3, required: true },
+      { label: "Photos/report link or note", name: "photosReport", type: "textarea", rows: 3 },
+      { label: "Outcome notes", name: "outcomes", type: "textarea", rows: 3, required: true }
+    ],
+    async (payload) => {
+      await api.post(`/api/exchanges/${exchange.id}/status`, { ...payload, status: nextStatus });
+      showToast(`${exchange.title} feedback submitted.`);
+    }
+  );
+};
+
+document.querySelector(".kanban").addEventListener("click", async (event) => {
+  const reviewButton = event.target.closest(".review-exchange");
+  const approveButton = event.target.closest(".approve-exchange");
+  const messageButton = event.target.closest(".message-exchange");
+  const progressButton = event.target.closest(".progress-exchange");
+  const editButton = event.target.closest(".edit-exchange");
+  const deleteButton = event.target.closest(".delete-exchange");
+  try {
+    if (reviewButton) {
+      const exchange = state.exchanges.find((item) => item.id === reviewButton.dataset.id);
+      if (exchange) openExchangeApplicationModal(exchange);
+    }
+    if (approveButton) {
+      const result = await api.post(`/api/exchanges/${approveButton.dataset.id}/approve`);
+      showToast(`${result.title} approval recorded. Status: ${result.status}.`);
+      await refresh();
+    }
+    if (messageButton) {
+      const exchange = state.exchanges.find((item) => item.id === messageButton.dataset.id);
+      if (exchange) openExchangeMessageModal(exchange);
+    }
+    if (progressButton) {
+      const exchange = state.exchanges.find((item) => item.id === progressButton.dataset.id);
+      if (!exchange) return;
+      if (progressButton.dataset.status === "Ongoing") {
+        openExchangeActivityModal(exchange, progressButton.dataset.status);
+        return;
+      }
+      if (progressButton.dataset.status === "Completed") {
+        openExchangeCompletionModal(exchange, progressButton.dataset.status);
+        return;
+      }
+      if (progressButton.dataset.status === "Feedback Submitted") {
+        openExchangeFeedbackModal(exchange, progressButton.dataset.status);
+        return;
+      }
+      const result = await api.post(`/api/exchanges/${exchange.id}/status`, { status: progressButton.dataset.status });
+      showToast(`${result.title} moved to ${result.status}.`);
+      await refresh();
+    }
+    if (editButton) {
+      const exchange = state.exchanges.find((item) => item.id === editButton.dataset.id);
+      if (exchange) openExchangeEditModal(exchange);
+    }
+    if (deleteButton) {
+      const exchange = state.exchanges.find((item) => item.id === deleteButton.dataset.id);
+      if (!exchange) return;
+      deleteButton.disabled = true;
+      const result = await api.delete(`/api/exchanges/${exchange.id}`);
+      showToast(`${exchange.title || "Exchange slot"} deleted. ${result.removed?.requests || 0} linked requests removed.`);
+      await refresh();
+    }
+  } catch (error) {
+    showToast(error.message || "Exchange update failed.");
+  } finally {
+    if (deleteButton) deleteButton.disabled = false;
+  }
 });
 
 document.querySelector("#vendorPreviewButton").addEventListener("click", () => {
@@ -3060,34 +3298,6 @@ document.querySelector("#vendorSignupForm").addEventListener("submit", async (ev
     await refresh();
   } catch (error) {
     status.textContent = error.message;
-  }
-});
-
-document.querySelector("#payments").addEventListener("click", (event) => {
-  const invoiceButton = event.target.closest(".invoice-action");
-  if (invoiceButton) {
-    const payment = state.payments.find((item) => item.id === invoiceButton.dataset.id);
-    invoicePanel.innerHTML = `
-      <div class="panel-heading">
-        <div>
-          <p class="eyebrow">Invoice preview</p>
-          <h2>Generated invoice</h2>
-        </div>
-      </div>
-      ${invoiceMarkup(payment)}
-      <button class="primary-button" id="downloadInvoiceButton" type="button">Download invoice</button>
-    `;
-  }
-
-  if (event.target.closest("#downloadInvoiceButton")) {
-    const invoiceText = invoicePanel.innerText;
-    const blob = new Blob([invoiceText], { type: "text/plain" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "yaara-invoice.txt";
-    link.click();
-    URL.revokeObjectURL(link.href);
-    showToast("Invoice downloaded.");
   }
 });
 

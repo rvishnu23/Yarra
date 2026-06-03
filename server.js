@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
-import { appendFile, copyFile, readFile, rename, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, copyFile, readFile, rename, writeFile, mkdir, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,7 @@ const s3PublicBaseUrl = process.env.AWS_S3_PUBLIC_BASE_URL || "";
 let pgPoolPromise;
 let googleClientPromise;
 let s3ClientPromise;
+const jsonWriteLocks = new Map();
 
 async function loadEnvFile() {
   const envPath = join(root, ".env");
@@ -104,13 +105,12 @@ const mimeTypes = {
 const seed = {
   schools: [
     {
-      id: "school-greenfield",
-      name: "Greenfield Public School",
+      id: "school-demo-public",
+      name: "Demo Public School",
       city: "Bengaluru",
       board: "CBSE",
       type: "K-12",
       contact: "admin@greenfield.edu",
-      earlyYears: true,
       status: "Active",
       membershipExpiry: "2027-05-18",
       achievements: ["STEM learning lab", "Teacher research circles", "Student leadership cohort"]
@@ -122,7 +122,6 @@ const seed = {
       board: "IB",
       type: "Senior Secondary",
       contact: "principal@riverside.edu",
-      earlyYears: false,
       status: "Pending approval",
       membershipExpiry: "2027-02-04",
       achievements: ["Global exchange partnerships", "Arts integration program"]
@@ -134,7 +133,7 @@ const seed = {
       name: "Anaya Rao",
       grade: "Grade 8",
       age: 13,
-      schoolId: "school-greenfield",
+      schoolId: "school-demo-public",
       guardianEmail: "parent.anaya@example.com",
       status: "Active",
       access: ["Competitions", "Student exchange", "Age-gated content"]
@@ -144,7 +143,7 @@ const seed = {
       name: "Kabir Menon",
       grade: "Grade 10",
       age: 15,
-      schoolId: "school-greenfield",
+      schoolId: "school-demo-public",
       guardianEmail: "parent.kabir@example.com",
       status: "Invited",
       access: ["Webinars", "Competitions"]
@@ -241,7 +240,7 @@ const seed = {
       type: "Student",
       subject: "Science",
       duration: "5 days",
-      fromSchool: "Greenfield Public School",
+      fromSchool: "Demo Public School",
       status: "Open"
     },
     {
@@ -259,7 +258,7 @@ const seed = {
       type: "Student",
       subject: "Leadership",
       duration: "3 days",
-      fromSchool: "Greenfield Public School",
+      fromSchool: "Demo Public School",
       status: "Matched"
     }
   ],
@@ -273,7 +272,6 @@ const seed = {
       tags: ["teacher", "video", "leadership"],
       audience: ["School Admin", "Teacher"],
       minAge: 18,
-      restrictedToEarlyYears: false,
       comments: 12,
       saved: 42
     },
@@ -287,23 +285,9 @@ const seed = {
       audience: ["School Admin", "Teacher", "Student"],
       minAge: 13,
       maxAge: 18,
-      restrictedToEarlyYears: false,
       comments: 7,
       saved: 31
     },
-    {
-      id: "content-early-years",
-      title: "Early Years Curriculum Access",
-      type: "Article",
-      speaker: "Yaara Editorial",
-      category: "Early Years",
-      tags: ["early-years", "curriculum", "restricted"],
-      audience: ["School Admin", "Teacher"],
-      minAge: 18,
-      restrictedToEarlyYears: true,
-      comments: 3,
-      saved: 18
-    }
   ],
   promotions: [
     {
@@ -321,7 +305,7 @@ const seed = {
   teacherResources: [
     {
       id: "resource-pl-june",
-      schoolId: "school-greenfield",
+      schoolId: "school-demo-public",
       title: "Inquiry-based assessment PL session",
       type: "Upcoming PL Session",
       presenter: "Isha Menon",
@@ -337,7 +321,7 @@ const seed = {
   reviewCycles: [
     {
       id: "review-greenfield-2026",
-      schoolId: "school-greenfield",
+      schoolId: "school-demo-public",
       title: "2026 School Improvement Review",
       startDate: "2026-06-01",
       endDate: "2026-11-30",
@@ -372,7 +356,7 @@ const seed = {
   payments: [
     {
       id: "pay-greenfield-membership",
-      schoolId: "school-greenfield",
+      schoolId: "school-demo-public",
       type: "Membership",
       amount: 25000,
       status: "Paid",
@@ -430,15 +414,28 @@ async function readJson(path) {
 }
 
 async function writeJson(path, value) {
+  const previous = jsonWriteLocks.get(path) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(() => writeJsonNow(path, value));
+  jsonWriteLocks.set(path, operation);
+  try {
+    await operation;
+  } finally {
+    if (jsonWriteLocks.get(path) === operation) {
+      jsonWriteLocks.delete(path);
+    }
+  }
+}
+
+async function writeJsonNow(path, value) {
   if (usePostgres && path === dbPath) {
     await persistStateToPostgres(value);
     return;
   }
-  const tempPath = `${path}.${Date.now()}.tmp`;
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
   const contents = `${JSON.stringify(value, null, 2)}\n`;
   await writeFile(tempPath, contents, "utf8");
   let lastError;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       await rename(tempPath, path);
       return;
@@ -447,14 +444,26 @@ async function writeJson(path, value) {
         throw error;
       }
       lastError = error;
-      await sleep(80 * (attempt + 1));
+      await sleep(Math.min(1500, 100 * (attempt + 1)));
     }
   }
-  try {
-    await writeFile(path, contents, "utf8");
-  } catch {
-    throw lastError;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      await copyFile(tempPath, path);
+      await unlink(tempPath).catch(() => {});
+      return;
+    } catch (error) {
+      if (!["EPERM", "EACCES", "EBUSY"].includes(error.code)) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(Math.min(2000, 150 * (attempt + 1)));
+    }
   }
+
+  await unlink(tempPath).catch(() => {});
+  throw lastError;
 }
 
 async function loadPersistedSessions() {
@@ -562,7 +571,6 @@ async function readStateFromPostgres() {
       board: school.board_affiliation,
       type: school.school_type || "K-12",
       contact: school.contact_email || "",
-      earlyYears: school.has_early_years_curriculum,
       status: school.membership_status,
       membershipExpiry: rowDate(school.membership_expiry),
       achievements: school.achievements || []
@@ -609,6 +617,7 @@ async function readStateFromPostgres() {
       subject: exchange.subject,
       duration: exchange.duration,
       fromSchool: exchange.from_school,
+      fromSchoolId: exchange.school_id || null,
       status: exchange.status
     })),
     content: content.rows.map((item) => ({
@@ -620,7 +629,6 @@ async function readStateFromPostgres() {
       audience: item.audience || ["School Admin", "Teacher"],
       minAge: item.min_age,
       maxAge: item.max_age,
-      restrictedToEarlyYears: (item.tags || []).includes("Yarra Early Years"),
       ageGatedRestricted: item.age_gated_restricted,
       vendorPromotional: item.is_vendor_promotional,
       comments: 0
@@ -679,7 +687,7 @@ async function persistStateToPostgres(state) {
            membership_expiry = EXCLUDED.membership_expiry,
            achievements = EXCLUDED.achievements,
            updated_at = now()`,
-        [school.id, school.name, school.board || school.boardAffiliation || "CBSE", school.city || "", school.type || "K-12", school.contact || "", Boolean(school.earlyYears), school.status || "Active", school.membershipExpiry || null, JSON.stringify(school.achievements || [])]
+        [school.id, school.name, school.board || school.boardAffiliation || "CBSE", school.city || "", school.type || "K-12", school.contact || "", false, school.status || "Active", school.membershipExpiry || null, JSON.stringify(school.achievements || [])]
       );
     }
 
@@ -1543,7 +1551,7 @@ function createSession({ email, name, provider, role, timeoutMinutes, userId, sc
     provider,
     role: normalizeRole(role),
     userId: userId || null,
-    schoolId: schoolId || "school-greenfield",
+    schoolId: schoolId || "school-demo-public",
     studentId: studentId || null,
     teacherId: teacherId || null,
     vendorId: vendorId || "vendor-learngrid",
@@ -1617,6 +1625,51 @@ async function addNotification(title, audience = "Super Admin") {
   return notification;
 }
 
+async function deleteSchoolFromPostgres(school, req, user) {
+  return withTransaction(async (client) => {
+    const userIds = (await client.query("SELECT id FROM users WHERE school_id = $1", [school.id])).rows.map((row) => row.id);
+    const removed = {
+      schools: 0,
+      users: userIds.length,
+      students: (await client.query("SELECT COUNT(*)::int AS count FROM users WHERE school_id = $1 AND role = 'Student'", [school.id])).rows[0]?.count || 0,
+      teachers: 0,
+      payments: 0,
+      events: 0,
+      eventRegistrations: 0,
+      content: 0,
+      exchanges: 0,
+      notifications: 0,
+      teacherResources: 0,
+      reviewCycles: 0,
+      marketOrders: 0
+    };
+
+    removed.payments = (await client.query("DELETE FROM payments WHERE school_id = $1 RETURNING id", [school.id])).rowCount;
+    removed.teacherResources = (await client.query("DELETE FROM school_announcements WHERE school_id = $1 RETURNING id", [school.id])).rowCount;
+    await client.query("DELETE FROM vendor_reviews WHERE school_id = $1", [school.id]);
+    await client.query("DELETE FROM rfq_carts WHERE school_id = $1", [school.id]);
+    await client.query("DELETE FROM file_assets WHERE school_id = $1", [school.id]);
+    removed.teachers = (await client.query("DELETE FROM teachers WHERE school_id = $1 RETURNING id", [school.id])).rowCount;
+    await client.query("DELETE FROM users WHERE school_id = $1", [school.id]);
+    removed.exchanges = (await client.query("DELETE FROM exchanges WHERE from_school = $1 RETURNING id", [school.name])).rowCount;
+    removed.notifications = (await client.query(
+      "DELETE FROM notifications WHERE title ILIKE $1 OR title ILIKE $2 RETURNING id",
+      [`%${school.name}%`, `%${school.contact || school.id}%`]
+    )).rowCount;
+    removed.schools = (await client.query("DELETE FROM schools WHERE id = $1 RETURNING id", [school.id])).rowCount;
+
+    for (const [hashedToken, session] of sessions.entries()) {
+      if (session.schoolId === school.id || userIds.includes(session.userId)) {
+        sessions.delete(hashedToken);
+      }
+    }
+
+    await persistSessions();
+    await audit("schools.delete", req, user, { schoolId: school.id, school: school.name, removed });
+    return removed;
+  });
+}
+
 function metrics(db) {
   const activeSchools = db.schools.filter((school) => school.status === "Active").length;
   const totalRevenue = db.payments
@@ -1672,8 +1725,8 @@ function metricsForUser(db, user) {
 }
 
 const roleViews = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "students", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "leadership", "myProfile", "teachersHub", "reviewCycle", "library", "vendors", "schoolNetwork", "profiles"],
   Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
   Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
@@ -1689,7 +1742,7 @@ function userFromRequest(req, url, session) {
     id: session?.userId || null,
     email: session?.email || null,
     role,
-    schoolId: session?.schoolId || req.headers["x-school-id"] || "school-greenfield",
+    schoolId: session?.schoolId || req.headers["x-school-id"] || "school-demo-public",
     studentId: session?.studentId || req.headers["x-student-id"] || null,
     teacherId: session?.teacherId || req.headers["x-teacher-id"] || null,
     vendorId: session?.vendorId || req.headers["x-vendor-id"] || "vendor-learngrid"
@@ -1702,7 +1755,6 @@ function deny(res) {
 
 function canWrite(user, resource, action = "") {
   if (user.role === "Super Admin") return true;
-  if (resource === "students") return user.role === "School Admin";
   if (resource === "uploads") return ["Super Admin", "School Admin"].includes(user.role);
   if (resource === "payments") return user.role === "School Admin";
   if (resource === "schools") return false;
@@ -1721,6 +1773,13 @@ function canWrite(user, resource, action = "") {
   if (resource === "vendors" && action === "approve") return false;
   if (resource === "vendors") return user.role === "Vendor";
   return false;
+}
+
+function canManageEvent(user, event) {
+  return Boolean(
+    event &&
+      (user.role === "Super Admin" || (user.role === "School Admin" && event.schoolId === user.schoolId))
+  );
 }
 
 function filteredState(db, user) {
@@ -1768,7 +1827,7 @@ function filteredState(db, user) {
       const audience = item.audience || ["School Admin", "Teacher", "Student"];
       const minAge = Number(item.minAge || 0);
       const maxAge = Number(item.maxAge || 18);
-      return audience.includes("Student") && age >= minAge && age <= maxAge && !item.restrictedToEarlyYears;
+      return audience.includes("Student") && age >= minAge && age <= maxAge;
     });
     return {
       ...full,
@@ -1816,7 +1875,7 @@ function filteredState(db, user) {
         const event = db.events.find((item) => item.id === registration.eventId);
         return event?.schoolId === user.schoolId;
       }),
-      exchanges: db.exchanges.filter((exchange) => !exchange.schoolId || exchange.schoolId === user.schoolId),
+      exchanges: db.exchanges,
       teacherResources: (db.teacherResources || []).filter((resource) => resource.schoolId === user.schoolId),
       reviewCycles: (db.reviewCycles || []).filter((cycle) => cycle.schoolId === user.schoolId),
       content: db.content.filter((item) => (item.audience || ["School Admin", "Teacher"]).includes("Teacher"))
@@ -2081,8 +2140,6 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const schoolResult = user.schoolId ? await queryDb("SELECT has_early_years_curriculum FROM schools WHERE id = $1", [user.schoolId]) : { rows: [] };
-    const hasEarlyYears = Boolean(schoolResult.rows[0]?.has_early_years_curriculum);
     const feed = await queryDb(
       `WITH unified AS (
          SELECT 'event' AS source, id, title, event_type AS body, event_date::timestamptz AS occurred_at, ARRAY[]::text[] AS tags, false AS age_gated_restricted, false AS is_vendor_promotional, ARRAY['School Admin','Teacher','Student']::text[] AS audience
@@ -2098,10 +2155,9 @@ async function handleApi(req, res, url) {
        FROM unified
        WHERE $1 = ANY(audience)
          AND NOT ($1 = 'Student' AND (age_gated_restricted = true OR is_vendor_promotional = true))
-         AND NOT ($1 IN ('School Admin','Teacher') AND 'Yarra Early Years' = ANY(tags) AND $2 = false)
        ORDER BY occurred_at DESC
        LIMIT 80`,
-      [user.role, hasEarlyYears]
+      [user.role]
     );
     sendJson(res, 200, { items: feed.rows });
     return;
@@ -2440,7 +2496,6 @@ async function handleApi(req, res, url) {
       board: body.board || "CBSE",
       type: body.type || "K-12",
       contact: body.contact || "",
-      earlyYears: Boolean(body.earlyYears),
       status: paymentPending ? "Payment pending" : "Active",
       membershipExpiry: paymentPending ? "" : "2027-05-18",
       achievements: []
@@ -2540,14 +2595,15 @@ async function handleApi(req, res, url) {
 
   if (req.method === "DELETE" && resource === "schools" && id) {
     if (!canWrite(user, "schools")) return deny(res);
-    if (usePostgres) {
-      sendJson(res, 501, { error: "School cascade delete is available in local JSON mode. Add database migrations before using it with PostgreSQL." });
-      return;
-    }
-
     const school = db.schools.find((item) => item.id === id);
     if (!school) {
       sendJson(res, 404, { error: "School not found." });
+      return;
+    }
+
+    if (usePostgres) {
+      const removed = await deleteSchoolFromPostgres(school, req, user);
+      sendJson(res, 200, { deleted: true, school, removed });
       return;
     }
 
@@ -2687,6 +2743,89 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "PATCH" && resource === "events" && id) {
+    const event = db.events.find((item) => item.id === id);
+    if (!event) {
+      sendJson(res, 404, { error: "Event not found." });
+      return;
+    }
+    if (!canManageEvent(user, event)) return deny(res);
+    const body = await readBody(req);
+    const previousTitle = event.title;
+    Object.assign(event, {
+      title: body.title || event.title,
+      type: body.type || event.type || "Workshop",
+      scope: body.scope || event.scope || "Intra school",
+      format: body.format || event.format || "Virtual",
+      date: body.date || event.date,
+      host: body.host || event.host || "Yaara Consortium",
+      capacity: Number(body.capacity || event.capacity || 100),
+      paid: Boolean(body.paid),
+      fee: Boolean(body.paid) ? Number(body.fee || 0) : 0,
+      description: body.description || "",
+      venue: body.venue || "",
+      startTime: body.startTime || "",
+      endTime: body.endTime || "",
+      eligibility: body.eligibility || "",
+      registrationDeadline: body.registrationDeadline || "",
+      coordinatorName: body.coordinatorName || user.email || "",
+      coordinatorEmail: body.coordinatorEmail || user.email || "",
+      formHeaderImage: body.formHeaderImage && typeof body.formHeaderImage === "object"
+        ? {
+            name: body.formHeaderImage.name || "event-header",
+            size: Number(body.formHeaderImage.size || 0),
+            type: body.formHeaderImage.type || "image",
+            dataUrl: String(body.formHeaderImage.dataUrl || "")
+          }
+        : null,
+      registrationQuestions: Array.isArray(body.registrationQuestions)
+        ? body.registrationQuestions.map((question, index) => ({
+            id: question.id || `q-${index + 1}`,
+            label: question.label || question.question || `Question ${index + 1}`,
+            type: question.type || "short",
+            required: question.required !== false,
+            options: Array.isArray(question.options) ? question.options.filter(Boolean) : [],
+            accept: question.accept || ""
+          }))
+        : []
+    });
+    if (previousTitle !== event.title) {
+      (db.eventRegistrations || []).forEach((registration) => {
+        if (registration.eventId === event.id) registration.eventTitle = event.title;
+      });
+    }
+    await writeJson(dbPath, db);
+    await audit("events.update", req, user, { eventId: event.id, title: event.title });
+    sendJson(res, 200, event);
+    return;
+  }
+
+  if (req.method === "DELETE" && resource === "events" && id) {
+    const event = db.events.find((item) => item.id === id);
+    if (!event) {
+      sendJson(res, 404, { error: "Event not found." });
+      return;
+    }
+    if (!canManageEvent(user, event)) return deny(res);
+    const before = {
+      events: db.events.length,
+      registrations: (db.eventRegistrations || []).length,
+      payments: (db.payments || []).length
+    };
+    db.events = db.events.filter((item) => item.id !== event.id);
+    db.eventRegistrations = (db.eventRegistrations || []).filter((registration) => registration.eventId !== event.id);
+    db.payments = (db.payments || []).filter((payment) => payment.eventId !== event.id);
+    const removed = {
+      events: before.events - db.events.length,
+      registrations: before.registrations - db.eventRegistrations.length,
+      payments: before.payments - db.payments.length
+    };
+    await writeJson(dbPath, db);
+    await audit("events.delete", req, user, { eventId: event.id, title: event.title, removed });
+    sendJson(res, 200, { deleted: true, event, removed });
+    return;
+  }
+
   if (req.method === "POST" && resource === "event-registrations" && !id) {
     if (!canWrite(user, "event-registrations")) return deny(res);
     const body = await readBody(req);
@@ -2808,48 +2947,6 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "POST" && resource === "students") {
-    if (!canWrite(user, "students")) return deny(res);
-    const body = await readBody(req);
-    const accessEmail = validateEmailField(body.email || body.studentEmail || body.guardianEmail, "student login email");
-    const student = {
-      id: createId("student", body.name),
-      studentId: body.studentId || "",
-      email: accessEmail,
-      name: body.name,
-      grade: body.grade || "Grade 8",
-      age: Number(body.age || 13),
-      schoolId: body.schoolId || db.schools[0]?.id,
-      guardianEmail: body.guardianEmail || "",
-      status: "Invited",
-      access: Array.isArray(body.access) ? body.access : ["Competitions", "Student exchange", "Age-gated content"]
-    };
-    db.students ||= [];
-    db.students.unshift(student);
-    const invitedStudent = upsertLocalStudentUser(db, student, accessEmail, "Invited");
-    db.notifications ||= [];
-    db.notifications.unshift(
-      {
-        id: createId("note", `${student.name}-student-invite-schooladmin`),
-        audience: "School Admin",
-        title: `Student access invited for ${student.name}: ${invitedStudent.email}.`,
-        unread: true,
-        createdAt: new Date().toISOString()
-      },
-      {
-        id: createId("note", `${student.name}-student-invite-student`),
-        audience: "Student",
-        title: `Your Yarra student access is ready. Sign in with ${invitedStudent.email}.`,
-        unread: true,
-        createdAt: new Date().toISOString()
-      }
-    );
-    await writeJson(dbPath, db);
-    await audit("students.invite", req, user, { studentId: student.id, schoolId: student.schoolId, email: invitedStudent.email });
-    sendJson(res, 201, student);
-    return;
-  }
-
   if (req.method === "POST" && resource === "payments") {
     if (!canWrite(user, "payments")) return deny(res);
     const body = await readBody(req);
@@ -2890,12 +2987,57 @@ async function handleApi(req, res, url) {
       subject: body.subject || "",
       duration: body.duration || "",
       fromSchool: body.fromSchool || db.schools[0]?.name || "Member school",
+      fromSchoolId: user.schoolId || db.schools.find((school) => school.name === body.fromSchool)?.id || "",
+      reviewSchoolId: "",
+      reviewSchool: "",
       status: "Open"
     };
     db.exchanges.unshift(exchange);
     await writeJson(dbPath, db);
     await audit("exchanges.create", req, user, { exchangeId: exchange.id, type: exchange.type });
     sendJson(res, 201, exchange);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "exchanges" && action === "review") {
+    if (user.role !== "School Admin") return deny(res);
+    const exchange = (db.exchanges || []).find((item) => item.id === id);
+    if (!exchange) {
+      sendJson(res, 404, { error: "Exchange slot not found." });
+      return;
+    }
+    const reviewingSchool = db.schools.find((school) => school.id === user.schoolId);
+    const ownExchange = exchange.fromSchoolId === user.schoolId || exchange.fromSchool === reviewingSchool?.name;
+    if (!reviewingSchool || ownExchange || exchange.status !== "Open") return deny(res);
+    exchange.status = "Under Review";
+    exchange.reviewSchoolId = reviewingSchool.id;
+    exchange.reviewSchool = reviewingSchool.name;
+    await writeJson(dbPath, db);
+    await audit("exchanges.review", req, user, { exchangeId: exchange.id, reviewSchoolId: reviewingSchool.id });
+    sendJson(res, 200, exchange);
+    return;
+  }
+
+  if (req.method === "POST" && resource === "exchanges" && action === "status") {
+    if (!["Super Admin", "School Admin"].includes(user.role)) return deny(res);
+    const body = await readBody(req);
+    const exchange = (db.exchanges || []).find((item) => item.id === id);
+    if (!exchange) {
+      sendJson(res, 404, { error: "Exchange slot not found." });
+      return;
+    }
+    const allowedTransitions = {
+      "Under Review": "Matched",
+      Matched: "Completed"
+    };
+    const school = db.schools.find((item) => item.id === user.schoolId);
+    const canProgress = user.role === "Super Admin" ||
+      (user.role === "School Admin" && (exchange.fromSchoolId === user.schoolId || exchange.reviewSchoolId === user.schoolId || exchange.fromSchool === school?.name));
+    if (!canProgress || allowedTransitions[exchange.status] !== body.status) return deny(res);
+    exchange.status = body.status;
+    await writeJson(dbPath, db);
+    await audit("exchanges.status", req, user, { exchangeId: exchange.id, status: exchange.status });
+    sendJson(res, 200, exchange);
     return;
   }
 
@@ -3037,7 +3179,6 @@ async function handleApi(req, res, url) {
       audience: Array.isArray(body.audience) ? body.audience : ["School Admin", "Teacher", "Student"],
       minAge: Number(body.minAge || 5),
       maxAge: Number(body.maxAge || 18),
-      restrictedToEarlyYears: Boolean(body.restrictedToEarlyYears),
       isVendorPromotional: false,
       likes: 0,
       likedBy: [],

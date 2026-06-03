@@ -73,7 +73,6 @@
           <button class="nav-item" type="button" data-view="schoolDashboard">School dashboard</button>
           <button class="nav-item" type="button" data-view="onboarding">School onboarding</button>
           <button class="nav-item" type="button" data-view="payments">Payments & invoices</button>
-          <button class="nav-item" type="button" data-view="students">Student users</button>
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
           <button class="nav-item" type="button" data-view="leadership">Leadership Connect</button>
@@ -227,7 +226,6 @@
                 <p class="eyebrow">Member school workspace</p>
                 <h2>School dashboard</h2>
               </div>
-              <button class="primary-button" type="button" id="inviteStudentButton">Invite student</button>
             </div>
             <div class="school-dashboard-grid">
               <section class="panel school-summary-panel"></section>
@@ -249,7 +247,7 @@
               <form class="platform-form" id="schoolForm">
                 <label>
                   School name
-                  <input name="school" type="text" value="Greenfield Public School">
+                  <input name="school" type="text" placeholder="Enter school name">
                 </label>
                 <label>
                   School business email / admin login
@@ -268,13 +266,8 @@
                   School type
                   <select name="type">
                     <option>K-12</option>
-                    <option>Early Years</option>
                     <option>Senior Secondary</option>
                   </select>
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" checked>
-                  Early Years curriculum access
                 </label>
                 <label>
                   School membership fee
@@ -297,19 +290,7 @@
             </div>
             <div class="split-grid">
               <section class="panel payment-panel"></section>
-              <section class="panel invoice-panel"></section>
             </div>
-          </section>
-
-          <section class="view" id="students" aria-label="Student users">
-            <div class="section-bar">
-              <div>
-                <p class="eyebrow">Age-gated access</p>
-                <h2>Student users</h2>
-              </div>
-              <button class="primary-button" type="button" id="studentButton">Add student</button>
-            </div>
-            <div class="student-grid" id="studentGrid"></div>
           </section>
 
           <section class="view" id="events" aria-label="Events">
@@ -659,11 +640,11 @@
             </div>
             <div class="profile-layout">
               <article class="school-profile">
-                <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=900&q=80" alt="School campus with students walking outside">
+                <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
                 <div>
-                  <p class="eyebrow">CBSE - Bengaluru</p>
-                  <h3>Greenfield Public School</h3>
-                  <p>Known for project-based STEM learning, teacher-led research circles, and student leadership exchange cohorts.</p>
+                  <p class="eyebrow">No profile yet</p>
+                  <h3>Add your first school</h3>
+                  <p>School profile details appear after onboarding.</p>
                 </div>
               </article>
               <section class="panel">
