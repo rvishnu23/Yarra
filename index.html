@@ -366,6 +366,29 @@
                 <span>Search</span>
                 <input id="librarySearch" type="search" placeholder="Search by title, tag, speaker">
               </label>
+              <label class="search-field">
+                <span>Category</span>
+                <select id="libraryCategoryFilter">
+                  <option value="All">All categories</option>
+                </select>
+              </label>
+              <label class="search-field">
+                <span>Audience</span>
+                <select id="libraryAudienceFilter">
+                  <option value="All">All audiences</option>
+                  <option>School Admin</option>
+                  <option>Teacher</option>
+                  <option>Student</option>
+                </select>
+              </label>
+              <label class="search-field">
+                <span>Sort</span>
+                <select id="librarySort">
+                  <option value="latest">Latest</option>
+                  <option value="popular">Most viewed</option>
+                  <option value="saved">Most saved</option>
+                </select>
+              </label>
             </div>
             <div class="filter-row" aria-label="Library filters">
               <button class="filter-chip is-active" type="button" data-filter="All">All</button>
@@ -377,6 +400,7 @@
               <button class="filter-chip" type="button" data-filter="Recorded Workshop">Workshops</button>
               <button class="filter-chip" type="button" data-filter="Podcast">Podcast</button>
             </div>
+            <div class="library-insights" id="libraryInsights"></div>
             <div class="story-strip" id="storyStrip"></div>
             <div class="social-feed" id="libraryGrid"></div>
           </section>
@@ -595,6 +619,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script type="module" src="script.js?v=20260603-content-library"></script>
+    <script type="module" src="script.js?v=20260609-library-upgrade"></script>
   </body>
 </html>

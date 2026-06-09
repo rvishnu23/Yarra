@@ -184,6 +184,11 @@ def filtered_state(data, user):
         data["events"] = [item for item in data.get("events", []) if item.get("scope") == "Inter school" or item.get("schoolId") == school_id]
         data["eventRegistrations"] = [item for item in data.get("eventRegistrations", []) if item.get("schoolId") == school_id]
         data["exchanges"] = data.get("exchanges", [])
+        if role == "Teacher":
+            data["content"] = [
+                item for item in data.get("content", [])
+                if role in (item.get("audience") or ["School Admin", "Teacher", "Student"])
+            ]
         data["teacherResources"] = [item for item in data.get("teacherResources", []) if item.get("schoolId") == school_id]
         data["reviewCycles"] = [item for item in data.get("reviewCycles", []) if item.get("schoolId") == school_id]
         data["metrics"] = metrics(data)
@@ -196,6 +201,10 @@ def filtered_state(data, user):
         data["schools"] = [item for item in data.get("schools", []) if item.get("id") == school_id]
         data["students"] = [student] if student else []
         data["payments"] = []
+        data["content"] = [
+            item for item in data.get("content", [])
+            if "Student" in (item.get("audience") or ["School Admin", "Teacher", "Student"])
+        ]
         data["metrics"] = metrics(data)
         return data
     if role == "Vendor":
@@ -204,6 +213,7 @@ def filtered_state(data, user):
         data["schools"] = []
         data["students"] = []
         data["events"] = []
+        data["content"] = []
         data["vendors"] = [item for item in data.get("vendors", []) if item.get("id") == vendor_id] or data.get("vendors", [])
         data["metrics"] = metrics(data)
         return data
@@ -347,6 +357,12 @@ def item(request, resource, item_id):
     if request.method == "PATCH":
         if resource == "events" and not can_manage_event(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+        if resource == "content":
+            if not can_manage_content_item(user, data):
+                return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+            data.update(content_payload(body_json(request), user, data))
+            save_existing(kind, data)
+            return JsonResponse(data)
         if resource == "exchanges":
             if not can_alter_exchange(user, data):
                 return JsonResponse({"error": "You do not have permission for this action."}, status=403)
@@ -362,6 +378,8 @@ def item(request, resource, item_id):
         return JsonResponse(data)
     if request.method == "DELETE":
         if resource == "events" and not can_manage_event(user, data):
+            return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+        if resource == "content" and not can_manage_content_item(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
         if resource == "exchanges" and not can_alter_exchange(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
@@ -512,25 +530,33 @@ def create_payment(payload, _user):
     return upsert("payments", payment)
 
 
-def create_content(payload, user):
+def content_payload(payload, user, existing=None):
     tags = payload.get("tags")
     if not isinstance(tags, list):
         tags = [tag.strip() for tag in str(tags or "").split(",") if tag.strip()]
-    content = {
-        "id": create_id("content", payload.get("title") or payload.get("type") or "post"),
+    audience = payload.get("audience") if isinstance(payload.get("audience"), list) else ["School Admin", "Teacher", "Student"]
+    return {
         "title": payload.get("title") or "Untitled post",
         "type": payload.get("type") or "Article",
         "speaker": payload.get("speaker") or user.get("email") or "Yarra member",
-        "authorRole": user.get("role"),
-        "schoolId": user.get("schoolId") or None,
         "category": payload.get("category") or "Community",
         "body": payload.get("body") or "",
         "mediaUrl": payload.get("mediaUrl") or "",
+        "attachmentUrl": payload.get("attachmentUrl") or "",
         "thumbnailUrl": payload.get("thumbnailUrl") or payload.get("mediaUrl") or "",
         "tags": tags,
-        "audience": payload.get("audience") if isinstance(payload.get("audience"), list) else ["School Admin", "Teacher", "Student"],
+        "audience": audience,
         "minAge": int(payload.get("minAge") or 5),
         "maxAge": int(payload.get("maxAge") or 18),
+        "status": "Published",
+    }
+
+
+def create_content(payload, user):
+    content = {
+        "id": create_id("content", payload.get("title") or payload.get("type") or "post"),
+        "authorRole": user.get("role"),
+        "schoolId": user.get("schoolId") or None,
         "likes": 0,
         "likedBy": [],
         "saved": 0,
@@ -539,6 +565,7 @@ def create_content(payload, user):
         "commentThreads": [],
         "views": 0,
         "createdAt": datetime.now(timezone.utc).isoformat(),
+        **content_payload(payload, user),
     }
     return upsert("content", content)
 
@@ -563,6 +590,12 @@ def can_alter_exchange(user, exchange):
     school = next((item for item in schools if item.get("id") == user.get("schoolId")), None)
     return user["role"] == "School Admin" and (
         exchange.get("fromSchoolId") == user.get("schoolId") or exchange.get("fromSchool") == (school or {}).get("name")
+    )
+
+
+def can_manage_content_item(user, content):
+    return user["role"] == "Super Admin" or (
+        user["role"] == "School Admin" and content.get("schoolId") == user.get("schoolId")
     )
 
 
@@ -773,3 +806,4 @@ def update_content_interaction(content_id, action_name, user, payload):
         content["commentThreads"] = comments
         content["comments"] = len(comments)
     return save_existing("content", content)
+

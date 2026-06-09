@@ -365,6 +365,9 @@ const vendorCategory = document.querySelector("#vendorCategory");
 const vendorProductButton = document.querySelector("#vendorProductButton");
 const marketCartButton = document.querySelector("#marketCartButton");
 const librarySearch = document.querySelector("#librarySearch");
+const libraryCategoryFilter = document.querySelector("#libraryCategoryFilter");
+const libraryAudienceFilter = document.querySelector("#libraryAudienceFilter");
+const librarySort = document.querySelector("#librarySort");
 const metricsGrid = document.querySelector(".metrics-grid");
 const notificationButton = document.querySelector("#notificationButton");
 const contentPostButton = document.querySelector("#contentPostButton");
@@ -383,6 +386,9 @@ const uploadHistoryBody = document.querySelector("#uploadHistoryBody");
 
 let state = {};
 let libraryFilter = "All";
+let libraryCategory = "All";
+let libraryAudience = "All";
+let librarySortMode = "latest";
 let marketTab = "products";
 let marketCart = [];
 let paymentConfigState = {};
@@ -490,7 +496,12 @@ const setView = (viewId) => {
   views.forEach((view) => {
     view.classList.toggle("is-active", view.id === viewId);
   });
+  if (window.location.hash !== `#${viewId}`) {
+    window.history.replaceState(null, "", `#${viewId}`);
+  }
 };
+
+const requestedView = () => window.location.hash.replace("#", "") || "dashboard";
 
 const tutorialStepsForRole = (role = currentRole()) => {
   const allowed = rolePermissions[role] || rolePermissions["School Admin"];
@@ -633,6 +644,62 @@ const startTutorial = () => {
 
 const canManageContent = () => ["Super Admin", "School Admin"].includes(currentRole());
 
+const contentAudience = (item) =>
+  Array.isArray(item.audience) && item.audience.length ? item.audience : ["School Admin", "Teacher", "Student"];
+
+const contentAudienceText = (item) => contentAudience(item).join(", ");
+
+const normalizeContent = (item) => ({
+  ...item,
+  type: item.type || "Article",
+  speaker: item.speaker || item.author || "Yarra member",
+  category: item.category || "Community",
+  tags: Array.isArray(item.tags) ? item.tags : [],
+  likes: Number(item.likes || 0),
+  comments: Number(item.comments || item.commentThreads?.length || 0),
+  saved: Number(item.saved || 0),
+  views: Number(item.views || 0),
+  body: item.body || "",
+  mediaUrl: item.mediaUrl || "",
+  attachmentUrl: item.attachmentUrl || "",
+  thumbnailUrl: item.thumbnailUrl || item.mediaUrl || "",
+  audience: contentAudience(item),
+  minAge: Number(item.minAge || 5),
+  maxAge: Number(item.maxAge || 18),
+  commentThreads: Array.isArray(item.commentThreads) ? item.commentThreads : []
+});
+
+const normalizedContentList = () => (state.content || []).map(normalizeContent);
+
+const isOwnContent = (item) => Boolean(currentRole() === "School Admin" && item.schoolId && item.schoolId === currentSession()?.schoolId);
+
+const canAlterContent = (item) => Boolean(item && (currentRole() === "Super Admin" || isOwnContent(item)));
+
+const contentMediaMarkup = (item, compact = false) => {
+  const media = item.thumbnailUrl || (item.type === "Podcast" ? imageMap.podcast : imageMap.content);
+  const mediaUrl = item.mediaUrl || "";
+  const escapedMediaUrl = escapeAttribute(mediaUrl);
+  if (item.type === "Podcast" && mediaUrl.match(/\.(mp3|wav|ogg)(\?|$)/i)) {
+    return `<div class="podcast-preview"><span>Audio</span><audio controls src="${escapedMediaUrl}"></audio></div>`;
+  }
+  if (["Video", "Short", "Recorded Workshop", "Webinar"].includes(item.type) && mediaUrl.match(/\.(mp4|webm|ogg)(\?|$)/i)) {
+    return `<div class="post-media video-shell"><video controls src="${escapedMediaUrl}" poster="${escapeAttribute(media)}"></video></div>`;
+  }
+  if (item.type === "Article") {
+    return `<div class="article-preview"><h4>${escapeAttribute(item.title)}</h4><p>${escapeAttribute(item.body || "Article summary will appear here.")}</p></div>`;
+  }
+  if (item.type === "Podcast") {
+    return `<div class="podcast-preview"><span>Audio</span><p>${escapeAttribute(item.body || "Podcast episode")}</p>${mediaUrl ? `<a href="${escapedMediaUrl}" target="_blank" rel="noreferrer">Open audio link</a>` : ""}</div>`;
+  }
+  return `
+    <div class="post-media ${["Video", "Short", "Recorded Workshop", "Webinar"].includes(item.type) ? "video-shell" : ""}">
+      <img src="${escapeAttribute(media)}" alt="">
+      ${["Video", "Short", "Recorded Workshop", "Webinar"].includes(item.type) ? `<span>${compact ? item.type : "Open media"}</span>` : ""}
+    </div>
+    ${mediaUrl && !compact ? `<a class="media-link" href="${escapedMediaUrl}" target="_blank" rel="noreferrer">Open media or recording</a>` : ""}
+  `;
+};
+
 const applyRolePermissions = () => {
   const role = currentRole();
   if (roleSelect && roleSelect.value !== role) roleSelect.value = role;
@@ -660,7 +727,7 @@ const applyRolePermissions = () => {
 
 const tagList = (tags) => `
   <div class="tag-row">
-    ${tags.map((tag) => `<span class="tag">${tag}</span>`).join("")}
+    ${tags.map((tag) => `<span class="tag">${escapeAttribute(tag)}</span>`).join("")}
   </div>
 `;
 
@@ -1339,26 +1406,34 @@ const renderSchoolNetwork = () => {
 const renderLibrary = () => {
   const query = librarySearch.value.trim().toLowerCase();
   const canInteract = canManageContent();
-  const normalizedContent = (state.content || []).map((item) => ({
-    ...item,
-    type: item.type || "Article",
-    speaker: item.speaker || item.author || "Yarra member",
-    category: item.category || "Community",
-    tags: Array.isArray(item.tags) ? item.tags : [],
-    likes: Number(item.likes || 0),
-    comments: Number(item.comments || item.commentThreads?.length || 0),
-    saved: Number(item.saved || 0),
-    views: Number(item.views || 0),
-    body: item.body || "",
-    mediaUrl: item.mediaUrl || item.thumbnailUrl || "",
-    thumbnailUrl: item.thumbnailUrl || item.mediaUrl || ""
-  }));
+  const normalizedContent = normalizedContentList();
+  const categories = ["All", ...new Set(normalizedContent.map((item) => item.category).filter(Boolean).sort())];
+  if (libraryCategoryFilter) {
+    libraryCategoryFilter.innerHTML = categories.map((category) => `<option value="${escapeAttribute(category)}">${category === "All" ? "All categories" : escapeAttribute(category)}</option>`).join("");
+    libraryCategoryFilter.value = categories.includes(libraryCategory) ? libraryCategory : "All";
+  }
   const filtered = normalizedContent.filter((item) => {
     const matchesType = libraryFilter === "All" || item.type === libraryFilter;
+    const matchesCategory = libraryCategory === "All" || item.category === libraryCategory;
+    const matchesAudience = libraryAudience === "All" || item.audience.includes(libraryAudience);
     const haystack = `${item.title} ${item.type} ${item.speaker} ${item.category} ${item.body} ${item.tags.join(" ")}`.toLowerCase();
-    return matchesType && haystack.includes(query);
+    return matchesType && matchesCategory && matchesAudience && haystack.includes(query);
+  });
+  filtered.sort((a, b) => {
+    if (librarySortMode === "popular") return b.views - a.views;
+    if (librarySortMode === "saved") return b.saved - a.saved;
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
   });
   const stories = normalizedContent.filter((item) => item.type === "Story").slice(0, 12);
+  const totalViews = filtered.reduce((sum, item) => sum + item.views, 0);
+  const totalSaves = filtered.reduce((sum, item) => sum + item.saved, 0);
+
+  document.querySelector("#libraryInsights").innerHTML = `
+    <article><strong>${filtered.length}</strong><span>visible posts</span></article>
+    <article><strong>${totalViews}</strong><span>views in this filter</span></article>
+    <article><strong>${totalSaves}</strong><span>saves in this filter</span></article>
+    <article><strong>${new Set(filtered.map((item) => item.category)).size}</strong><span>active categories</span></article>
+  `;
 
   document.querySelector("#storyStrip").innerHTML = stories.length
     ? stories
@@ -1374,36 +1449,31 @@ const renderLibrary = () => {
     ? filtered
         .map((item) => {
           const isShort = item.type === "Short";
-          const media = item.thumbnailUrl || (item.type === "Podcast" ? imageMap.podcast : imageMap.content);
           return `
             <article class="social-post ${isShort ? "is-short" : ""}" data-id="${item.id}">
               <div class="post-topline">
                 <div>
-                  <p class="eyebrow">${item.type}</p>
-                  <h3>${item.title}</h3>
-                  <span>${item.speaker} - ${item.category}</span>
+                  <p class="eyebrow">${escapeAttribute(item.type)}</p>
+                  <h3>${escapeAttribute(item.title)}</h3>
+                  <span>${escapeAttribute(item.speaker)} - ${escapeAttribute(item.category)}</span>
                 </div>
                 <strong>${item.views} views</strong>
               </div>
-              ${["Video", "Short", "Recorded Workshop", "Webinar"].includes(item.type)
-                ? `<div class="post-media video-shell"><img src="${media}" alt=""><span>${item.type === "Short" ? "Short" : "Play video"}</span></div>`
-                : item.type === "Article"
-                  ? `<div class="article-preview"><h4>${item.title}</h4><p>${item.body || "Article summary will appear here."}</p></div>`
-                  : item.type === "Podcast"
-                    ? `<div class="podcast-preview"><span>Audio</span><p>${item.body || "Podcast episode"}</p></div>`
-                    : `<div class="post-media"><img src="${media}" alt=""></div>`}
-              <p class="post-copy">${item.body || "Shared with the Yarra community."}</p>
-              ${tagList([...item.tags, "All members"])}
+              ${contentMediaMarkup(item, true)}
+              <p class="post-copy">${escapeAttribute(item.body || "Shared with the Yarra community.")}</p>
+              ${tagList([...item.tags, `Visible to: ${contentAudienceText(item)}`, `Ages ${item.minAge}-${item.maxAge}`])}
               ${canInteract ? `
                 <div class="post-actions">
+                  <button class="ghost-button open-content-detail" type="button" data-id="${item.id}">View details</button>
                   <button class="ghost-button content-like" type="button" data-id="${item.id}">Like ${item.likes}</button>
                   <button class="ghost-button content-comment" type="button" data-id="${item.id}">Comment ${item.comments}</button>
                   <button class="ghost-button content-save" type="button" data-id="${item.id}">Save ${item.saved}</button>
+                  ${canAlterContent(item) ? `<button class="ghost-button edit-content" type="button" data-id="${item.id}">Edit</button><button class="ghost-button danger-button delete-content" type="button" data-id="${item.id}">Delete</button>` : ""}
                 </div>
-              ` : ""}
+              ` : `<button class="ghost-button open-content-detail" type="button" data-id="${item.id}">View details</button>`}
               ${item.commentThreads?.length ? `
                 <div class="comment-preview">
-                  ${item.commentThreads.slice(0, 2).map((comment) => `<p><strong>${comment.author}</strong> ${comment.text}</p>`).join("")}
+                  ${item.commentThreads.slice(0, 2).map((comment) => `<p><strong>${escapeAttribute(comment.author)}</strong> ${escapeAttribute(comment.text)}</p>`).join("")}
                 </div>
               ` : ""}
             </article>
@@ -1655,6 +1725,7 @@ const completeGmailLogin = async () => {
   storeSession(authUser.session);
   setAuthenticated(true);
   await refreshWithSession(authUser.session);
+  setView(requestedView());
   showToast(`Signed in as ${authUser.email}.`);
 };
 
@@ -1924,6 +1995,12 @@ const modal = (title, fields, onSubmit) => {
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
+});
+
+window.addEventListener("hashchange", () => {
+  if (document.body.classList.contains("is-authenticated")) {
+    setView(requestedView());
+  }
 });
 
 tutorialButton?.addEventListener("click", startTutorial);
@@ -2231,17 +2308,29 @@ teacherResourceButton.addEventListener("click", () => {
   );
 });
 
-document.querySelectorAll(".filter-chip").forEach((button) => {
+document.querySelectorAll("#library .filter-chip[data-filter]").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.remove("is-active"));
+    document.querySelectorAll("#library .filter-chip[data-filter]").forEach((chip) => chip.classList.remove("is-active"));
     button.classList.add("is-active");
     libraryFilter = button.dataset.filter;
     renderLibrary();
   });
 });
 
-librarySearch.addEventListener("input", renderLibrary);
-vendorCategory.addEventListener("change", renderVendors);
+librarySearch?.addEventListener("input", renderLibrary);
+libraryCategoryFilter?.addEventListener("change", (event) => {
+  libraryCategory = event.target.value;
+  renderLibrary();
+});
+libraryAudienceFilter?.addEventListener("change", (event) => {
+  libraryAudience = event.target.value;
+  renderLibrary();
+});
+librarySort?.addEventListener("change", (event) => {
+  librarySortMode = event.target.value;
+  renderLibrary();
+});
+vendorCategory?.addEventListener("change", renderVendors);
 
 const openVendorProductModal = () => {
   modal(
@@ -2351,7 +2440,14 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
   }
 });
 
-const openContentPostModal = () => {
+const openContentPostModal = (existingContent = null) => {
+  const existing = existingContent ? normalizeContent(existingContent) : null;
+  const selected = (value, expected) => (value === expected ? "selected" : "");
+  const audienceKey = existing?.audience?.length === 1 && existing.audience.includes("Student")
+    ? "students"
+    : existing?.audience?.length === 2 && existing.audience.includes("School Admin") && existing.audience.includes("Teacher")
+      ? "staff"
+      : "all";
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.innerHTML = `
@@ -2359,40 +2455,35 @@ const openContentPostModal = () => {
       <div class="modal-heading">
         <div>
           <p class="eyebrow">Content library</p>
-          <h2>Create community post</h2>
+          <h2>${existing ? "Edit community post" : "Create community post"}</h2>
         </div>
         <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
       </div>
       <div class="modal-fields form-builder-grid">
-        <label>Title<input name="title" type="text" required></label>
+        <label>Title<input name="title" type="text" value="${escapeAttribute(existing?.title || "")}" required></label>
         <label>Post type
           <select name="type">
-            <option>Story</option>
-            <option>Short</option>
-            <option>Video</option>
-            <option>Article</option>
-            <option>Webinar</option>
-            <option>Recorded Workshop</option>
-            <option>Podcast</option>
+            ${["Story", "Short", "Video", "Article", "Webinar", "Recorded Workshop", "Podcast"].map((type) => `<option ${selected(existing?.type, type)}>${type}</option>`).join("")}
           </select>
         </label>
-        <label>Author / speaker<input name="speaker" type="text" value="${currentSession()?.email || currentRole()}"></label>
-        <label>Category<input name="category" type="text" value="Community"></label>
-        <label>Media URL<input name="mediaUrl" type="url" placeholder="https://..."></label>
+        <label>Author / speaker<input name="speaker" type="text" value="${escapeAttribute(existing?.speaker || currentSession()?.email || currentRole())}"></label>
+        <label>Category<input name="category" type="text" value="${escapeAttribute(existing?.category || "Community")}"></label>
+        <label>Media URL<input name="mediaUrl" type="url" value="${escapeAttribute(existing?.mediaUrl || "")}" placeholder="https://..."></label>
+        <label>Attachment / resource URL<input name="attachmentUrl" type="url" value="${escapeAttribute(existing?.attachmentUrl || "")}" placeholder="Slides, PDF, worksheet, recording notes"></label>
         <label>Upload thumbnail / story image<input name="thumbnailFile" type="file" accept="image/*"></label>
-        <label>Tags<input name="tags" type="text" placeholder="leadership, student, sports"></label>
+        <label>Tags<input name="tags" type="text" value="${escapeAttribute((existing?.tags || []).join(", "))}" placeholder="leadership, student, sports"></label>
         <label>Audience
           <select name="audience">
-            <option value="all">School Admin, Teacher, Student</option>
-            <option value="staff">School Admin and Teacher</option>
-            <option value="students">Students</option>
+            <option value="all" ${selected(audienceKey, "all")}>School Admin, Teacher, Student</option>
+            <option value="staff" ${selected(audienceKey, "staff")}>School Admin and Teacher</option>
+            <option value="students" ${selected(audienceKey, "students")}>Students</option>
           </select>
         </label>
-        <label>Minimum student age<input name="minAge" type="number" min="3" value="5"></label>
-        <label>Maximum student age<input name="maxAge" type="number" min="3" value="18"></label>
-        <label class="wide-field">Caption / article body<textarea name="body" rows="6" placeholder="Write the story, article, video caption, or update..."></textarea></label>
+        <label>Minimum student age<input name="minAge" type="number" min="3" value="${escapeAttribute(existing?.minAge || 5)}"></label>
+        <label>Maximum student age<input name="maxAge" type="number" min="3" value="${escapeAttribute(existing?.maxAge || 18)}"></label>
+        <label class="wide-field">Caption / article body<textarea name="body" rows="6" placeholder="Write the story, article, video caption, or update...">${escapeAttribute(existing?.body || "")}</textarea></label>
       </div>
-      <button class="primary-button" type="submit">Publish to feed</button>
+      <button class="primary-button" type="submit">${existing ? "Save changes" : "Publish to feed"}</button>
     </form>
   `;
   overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
@@ -2409,21 +2500,27 @@ const openContentPostModal = () => {
       students: ["Student"]
     };
     try {
-      await api.create("content", {
+      const payload = {
         title: formData.get("title"),
         type: formData.get("type"),
         speaker: formData.get("speaker"),
         category: formData.get("category"),
         body: formData.get("body"),
         mediaUrl: formData.get("mediaUrl"),
-        thumbnailUrl: thumbnailFile?.dataUrl || formData.get("mediaUrl"),
+        attachmentUrl: formData.get("attachmentUrl"),
+        thumbnailUrl: thumbnailFile?.dataUrl || existing?.thumbnailUrl || formData.get("mediaUrl"),
         tags: String(formData.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean),
         audience: audienceMap[formData.get("audience")] || audienceMap.all,
         minAge: formData.get("minAge"),
         maxAge: formData.get("maxAge")
-      });
+      };
+      if (existing) {
+        await api.update(`/api/content/${existing.id}`, payload);
+      } else {
+        await api.create("content", payload);
+      }
       overlay.remove();
-      showToast("Post published to the Content Library feed.");
+      showToast(existing ? "Post updated." : "Post published to the Content Library feed.");
       await refresh();
       setView("library");
     } catch (error) {
@@ -2433,13 +2530,90 @@ const openContentPostModal = () => {
   document.body.append(overlay);
 };
 
-contentPostButton?.addEventListener("click", openContentPostModal);
+const openContentDetailModal = (contentId) => {
+  const item = normalizedContentList().find((contentItem) => contentItem.id === contentId);
+  if (!item) {
+    showToast("Content item not found.");
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.innerHTML = `
+    <section class="modal-card content-detail-modal">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">${escapeAttribute(item.type)}</p>
+          <h2>${escapeAttribute(item.title)}</h2>
+          <p>${escapeAttribute(item.speaker)} - ${escapeAttribute(item.category)}</p>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
+      </div>
+      ${contentMediaMarkup(item)}
+      <p class="post-copy">${escapeAttribute(item.body || "Shared with the Yarra community.")}</p>
+      ${tagList([...item.tags, `Visible to: ${contentAudienceText(item)}`, `Ages ${item.minAge}-${item.maxAge}`, `${item.views} views`, `${item.saved} saves`])}
+      ${item.attachmentUrl ? `<a class="primary-button attachment-link" href="${escapeAttribute(item.attachmentUrl)}" target="_blank" rel="noreferrer">Open attached resource</a>` : ""}
+      <div class="detail-actions">
+        ${canAlterContent(item) ? `<button class="ghost-button edit-content" type="button" data-id="${item.id}">Edit</button><button class="ghost-button danger-button delete-content" type="button" data-id="${item.id}">Delete</button>` : ""}
+      </div>
+      <section class="comment-thread-panel">
+        <h3>Admin coordination comments</h3>
+        ${canManageContent() ? `
+          <form class="comment-form">
+            <textarea name="comment" rows="3" placeholder="Add a moderation or coordination comment"></textarea>
+            <button class="primary-button" type="submit">Add comment</button>
+          </form>
+        ` : ""}
+        <div class="comment-list">
+          ${item.commentThreads.length
+            ? item.commentThreads.map((comment) => `<article><strong>${escapeAttribute(comment.author)}</strong><span>${escapeAttribute(comment.role || "Member")}</span><p>${escapeAttribute(comment.text)}</p></article>`).join("")
+            : `<article><strong>No comments yet</strong><p>Admin comments will appear here.</p></article>`}
+        </div>
+      </section>
+    </section>
+  `;
+  overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (clickEvent) => {
+    if (clickEvent.target === overlay) overlay.remove();
+  });
+  overlay.querySelector(".comment-form")?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const text = submitEvent.currentTarget.comment.value.trim();
+    if (!text) return;
+    await api.post(`/api/content/${item.id}/comment`, { text });
+    overlay.remove();
+    await refresh();
+    setView("library");
+    openContentDetailModal(item.id);
+  });
+  overlay.querySelector(".edit-content")?.addEventListener("click", () => {
+    overlay.remove();
+    openContentPostModal(item);
+  });
+  overlay.querySelector(".delete-content")?.addEventListener("click", async () => {
+    if (!window.confirm(`Delete ${item.title}?`)) return;
+    await api.delete(`/api/content/${item.id}`);
+    overlay.remove();
+    showToast("Post deleted.");
+    await refresh();
+    setView("library");
+  });
+  document.body.append(overlay);
+};
+
+contentPostButton?.addEventListener("click", () => openContentPostModal());
 
 document.querySelector("#libraryGrid")?.addEventListener("click", async (event) => {
+  const detailButton = event.target.closest(".open-content-detail");
   const likeButton = event.target.closest(".content-like");
   const saveButton = event.target.closest(".content-save");
   const commentButton = event.target.closest(".content-comment");
-  if ((likeButton || saveButton || commentButton) && !canManageContent()) {
+  const editButton = event.target.closest(".edit-content");
+  const deleteButton = event.target.closest(".delete-content");
+  if (detailButton) {
+    openContentDetailModal(detailButton.dataset.id);
+    return;
+  }
+  if ((likeButton || saveButton || commentButton || editButton || deleteButton) && !canManageContent()) {
     showToast("Only School Admins and Super Admin can interact with posts.");
     return;
   }
@@ -2454,9 +2628,17 @@ document.querySelector("#libraryGrid")?.addEventListener("click", async (event) 
     setView("library");
   }
   if (commentButton) {
-    const text = window.prompt("Write a comment");
-    if (!text?.trim()) return;
-    await api.post(`/api/content/${commentButton.dataset.id}/comment`, { text: text.trim() });
+    openContentDetailModal(commentButton.dataset.id);
+  }
+  if (editButton) {
+    const item = normalizedContentList().find((contentItem) => contentItem.id === editButton.dataset.id);
+    if (item) openContentPostModal(item);
+  }
+  if (deleteButton) {
+    const item = normalizedContentList().find((contentItem) => contentItem.id === deleteButton.dataset.id);
+    if (!item || !window.confirm(`Delete ${item.title}?`)) return;
+    await api.delete(`/api/content/${item.id}`);
+    showToast("Post deleted.");
     await refresh();
     setView("library");
   }
@@ -2465,10 +2647,7 @@ document.querySelector("#libraryGrid")?.addEventListener("click", async (event) 
 document.querySelector("#storyStrip")?.addEventListener("click", (event) => {
   const storyButton = event.target.closest(".open-content");
   if (!storyButton) return;
-  libraryFilter = "Story";
-  document.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.toggle("is-active", chip.dataset.filter === "Story"));
-  renderLibrary();
-  showToast("Showing stories feed.");
+  openContentDetailModal(storyButton.dataset.id);
 });
 
 roleSelect.addEventListener("change", async () => {
@@ -3151,6 +3330,7 @@ if (getSessionValue(AUTH_STORAGE_KEY) === "true" && currentSession()?.id) {
     setAuthenticated(true);
     roleSelect.value = currentRole();
     await refresh();
+    setView(requestedView());
   } catch (error) {
     const message = String(error?.message || "");
     const authFailure =
