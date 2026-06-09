@@ -3,6 +3,8 @@ import secrets
 from datetime import datetime, timezone
 
 from django.conf import settings
+from django.db import connection
+from django.db.utils import OperationalError
 from django.http import FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -16,6 +18,8 @@ ROLE_ACCOUNTS = {
     "Student": ("yarra.student@akshararbol.edu.in", "Yarra@Student123"),
     "Vendor": ("yarra.vendor@akshararbol.edu.in", "Yarra@Vendor123"),
 }
+
+DATABASE_READY = False
 
 RESOURCE_KIND = {
     "schools": "schools",
@@ -78,11 +82,45 @@ def body_json(request):
     return json.loads(request.body.decode("utf-8"))
 
 
+def seed_initial_data():
+    seed_path = settings.BASE_DIR / "data" / "db.json"
+    if not seed_path.exists() or Entity.objects.filter(kind="users").exists():
+        return
+    data = json.loads(seed_path.read_text(encoding="utf-8"))
+    for kind, rows in data.items():
+        if kind == "settings" or not isinstance(rows, list):
+            continue
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            external_id = row.get("id") or f"{kind}-{index + 1}"
+            row["id"] = external_id
+            Entity.objects.update_or_create(kind=kind, external_id=external_id, defaults={"data": row})
+
+
+def ensure_runtime_database():
+    global DATABASE_READY
+    if DATABASE_READY:
+        return
+    table_name = Entity._meta.db_table
+    if table_name not in connection.introspection.table_names():
+        try:
+            with connection.schema_editor() as schema_editor:
+                schema_editor.create_model(Entity)
+        except OperationalError:
+            if table_name not in connection.introspection.table_names():
+                raise
+    seed_initial_data()
+    DATABASE_READY = True
+
+
 def entities(kind):
+    ensure_runtime_database()
     return [entity.data for entity in Entity.objects.filter(kind=kind).order_by("-created_at")]
 
 
 def upsert(kind, data):
+    ensure_runtime_database()
     external_id = data.get("id") or create_id(kind.rstrip("s"), data.get("name") or data.get("title") or kind)
     data["id"] = external_id
     Entity.objects.update_or_create(kind=kind, external_id=external_id, defaults={"data": data})
@@ -90,20 +128,24 @@ def upsert(kind, data):
 
 
 def delete_entity(kind, external_id):
+    ensure_runtime_database()
     return Entity.objects.filter(kind=kind, external_id=external_id).delete()[0]
 
 
 def find_one(kind, external_id):
+    ensure_runtime_database()
     entity = Entity.objects.filter(kind=kind, external_id=external_id).first()
     return entity.data if entity else None
 
 
 def save_existing(kind, data):
+    ensure_runtime_database()
     Entity.objects.update_or_create(kind=kind, external_id=data["id"], defaults={"data": data})
     return data
 
 
 def current_session(request):
+    ensure_runtime_database()
     token = request.headers.get("X-Session-Id")
     if not token:
         return None
@@ -126,6 +168,47 @@ def current_user(request):
 
 def public_session(token, session):
     return {"id": token, **session}
+
+
+def first_school():
+    school = Entity.objects.filter(kind="schools").order_by("-created_at").first()
+    if school:
+        return school.data
+    return upsert("schools", {
+        "id": "school-yarra-demo",
+        "name": "Yarra Demo School",
+        "city": "Bengaluru",
+        "board": "CBSE",
+        "type": "K-12",
+        "contact": "yarra.schooladmin@akshararbol.edu.in",
+        "status": "Active",
+        "membershipExpiry": "2027-05-18",
+        "achievements": [],
+    })
+
+
+def bootstrap_builtin_user(role, email):
+    school = first_school()
+    user = {
+        "id": f"user-{slug(email)}",
+        "email": email,
+        "name": f"Yarra {role}",
+        "role": role,
+        "status": "Active",
+    }
+    if role in {"School Admin", "Teacher", "Student"}:
+        user["schoolId"] = school.get("id")
+    if role == "Teacher":
+        user["teacherId"] = user["id"]
+        upsert("teachers", {"id": user["id"], "name": user["name"], "email": email, "schoolId": school.get("id"), "subject": "Yarra demo"})
+    if role == "Student":
+        user["studentId"] = user["id"]
+        upsert("students", {"id": user["id"], "name": user["name"], "email": email, "schoolId": school.get("id"), "grade": "8", "status": "Active"})
+    if role == "Vendor":
+        vendor_id = "vendor-yarra-demo"
+        user["vendorId"] = vendor_id
+        upsert("vendors", {"id": vendor_id, "name": "Yarra Demo Vendor", "email": email, "category": "EdTech", "offer": "Demo vendor listing", "status": "Approved"})
+    return upsert("users", user)
 
 
 def full_state():
@@ -259,8 +342,8 @@ def login(request):
 
     users = entities("users")
     user = next((item for item in users if str(item.get("email", "")).lower() == email and item.get("role") == role), None)
-    if not user and role == "Super Admin":
-        user = upsert("users", {"id": f"user-{slug(email)}", "email": email, "name": "Yarra Super Admin", "role": role, "status": "Active"})
+    if not user and builtin and email == builtin[0]:
+        user = bootstrap_builtin_user(role, email)
     if not user:
         return JsonResponse({"error": "No Yarra invite was found for this Gmail account."}, status=403)
 
@@ -806,4 +889,3 @@ def update_content_interaction(content_id, action_name, user, payload):
         content["commentThreads"] = comments
         content["comments"] = len(comments)
     return save_existing("content", content)
-

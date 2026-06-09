@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 
 .vercel
+.tmp-vercel-db-test*/
