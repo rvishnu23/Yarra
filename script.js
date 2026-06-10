@@ -2179,8 +2179,6 @@ downloadTemplateLink.addEventListener("click", async (event) => {
   setTemplateSaveStatus(`Preparing ${fileName}...`);
   try {
     await api.saveTemplate(uploadType.value);
-    setTemplateSaveStatus(`${fileName} downloaded.`, "saved");
-    showToast(`${fileName} downloaded.`);
 
     try {
       const response = await fetch(href);
@@ -2194,8 +2192,10 @@ downloadTemplateLink.addEventListener("click", async (event) => {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      // The server-side save above is the reliable path in the desktop app.
+      setTemplateSaveStatus(`${fileName} download started. Check your browser downloads.`, "saved");
+      showToast(`${fileName} download started.`);
+    } catch (downloadError) {
+      throw downloadError;
     }
   } catch (error) {
     setTemplateSaveStatus(error.message, "error");
