@@ -11,6 +11,7 @@ urlpatterns = [
     path("auth/extend", views.extend_session),
     path("auth/role", views.switch_role),
     path("payments/config", views.payment_config),
+    path("templates/save", views.save_template),
     path("<str:resource>", views.collection),
     path("<str:resource>/<str:item_id>", views.item),
     path("<str:resource>/<str:item_id>/<str:action>", views.action),

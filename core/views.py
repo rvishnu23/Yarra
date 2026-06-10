@@ -32,8 +32,8 @@ RESOURCE_KIND = {
     "exchanges": "exchanges",
     "content": "content",
     "vendors": "vendors",
+    "vendor-products": "vendorProducts",
     "notifications": "notifications",
-    "teacher-resources": "teacherResources",
     "review-cycles": "reviewCycles",
     "leadership-threads": "leadershipThreads",
     "market-orders": "marketOrders",
@@ -46,6 +46,7 @@ STATE_KINDS = [
     "students",
     "teachers",
     "vendors",
+    "vendorProducts",
     "events",
     "eventRegistrations",
     "exchanges",
@@ -53,7 +54,6 @@ STATE_KINDS = [
     "promotions",
     "notifications",
     "payments",
-    "teacherResources",
     "reviewCycles",
     "leadershipThreads",
     "marketOrders",
@@ -159,6 +159,7 @@ def current_user(request):
     return {
         "role": role,
         "email": session.get("email") or "",
+        "userId": session.get("userId") or "",
         "schoolId": session.get("schoolId") or "",
         "studentId": session.get("studentId") or "",
         "teacherId": session.get("teacherId") or "",
@@ -266,13 +267,15 @@ def filtered_state(data, user):
         data["payments"] = [item for item in data.get("payments", []) if item.get("schoolId") == school_id]
         data["events"] = [item for item in data.get("events", []) if item.get("scope") == "Inter school" or item.get("schoolId") == school_id]
         data["eventRegistrations"] = [item for item in data.get("eventRegistrations", []) if item.get("schoolId") == school_id]
+        data["vendors"] = [item for item in data.get("vendors", []) if item.get("status") == "Approved"]
+        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if item.get("status", "Active") in {"Active", "Approved"}]
+        data["marketOrders"] = [item for item in data.get("marketOrders", []) if item.get("schoolId") == school_id or item.get("buyerEmail") == user.get("email")]
         data["exchanges"] = data.get("exchanges", [])
         if role == "Teacher":
             data["content"] = [
                 item for item in data.get("content", [])
                 if role in (item.get("audience") or ["School Admin", "Teacher", "Student"])
             ]
-        data["teacherResources"] = [item for item in data.get("teacherResources", []) if item.get("schoolId") == school_id]
         data["reviewCycles"] = [item for item in data.get("reviewCycles", []) if item.get("schoolId") == school_id]
         data["metrics"] = metrics(data)
         return data
@@ -284,6 +287,9 @@ def filtered_state(data, user):
         data["schools"] = [item for item in data.get("schools", []) if item.get("id") == school_id]
         data["students"] = [student] if student else []
         data["payments"] = []
+        data["vendors"] = [item for item in data.get("vendors", []) if item.get("status") == "Approved"]
+        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if item.get("status", "Active") in {"Active", "Approved"}]
+        data["marketOrders"] = [item for item in data.get("marketOrders", []) if item.get("buyerEmail") == user.get("email") or item.get("buyerId") == user.get("studentId")]
         data["content"] = [
             item for item in data.get("content", [])
             if "Student" in (item.get("audience") or ["School Admin", "Teacher", "Student"])
@@ -298,6 +304,12 @@ def filtered_state(data, user):
         data["events"] = []
         data["content"] = []
         data["vendors"] = [item for item in data.get("vendors", []) if item.get("id") == vendor_id] or data.get("vendors", [])
+        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if item.get("vendorId") == vendor_id]
+        data["marketOrders"] = [
+            item for item in data.get("marketOrders", [])
+            if any(order_item.get("vendorId") == vendor_id for order_item in item.get("items", []))
+        ]
+        data["promotions"] = [item for item in data.get("promotions", []) if item.get("vendorId") == vendor_id]
         data["metrics"] = metrics(data)
         return data
     return data
@@ -315,10 +327,16 @@ def can_write(user, resource):
         return role in {"School Admin", "Teacher"}
     if resource in {"event-registrations"}:
         return role in {"School Admin", "Teacher", "Student"}
-    if resource in {"teacher-resources", "review-cycles"}:
+    if resource in {"review-cycles"}:
         return role in {"Super Admin", "School Admin", "Teacher"}
     if resource == "content":
         return role in {"Super Admin", "School Admin"}
+    if resource == "vendors":
+        return role in {"Super Admin", "Vendor"}
+    if resource == "vendor-products":
+        return role in {"Vendor", "Super Admin"}
+    if resource == "market-orders":
+        return role in {"Super Admin", "School Admin", "Teacher", "Student"}
     return role in {"Super Admin", "School Admin"}
 
 
@@ -404,6 +422,29 @@ def payment_config(_request):
     return JsonResponse({"razorpayConfigured": False, "razorpayKeyId": "", "upiPayeeId": "vishnuaravindhr-1@okicici", "upiPayeeName": "Yarra Education Group"})
 
 
+@csrf_exempt
+def save_template(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "API route not found"}, status=404)
+    user = current_user(request)
+    if user["role"] not in {"Super Admin", "School Admin"}:
+        return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+    template_map = {
+        "staff_roster": "Staff Database.xlsx",
+        "student_roster": "Student Database.xlsx",
+    }
+    payload = body_json(request)
+    file_name = template_map.get(payload.get("uploadType"), template_map["staff_roster"])
+    template_path = settings.BASE_DIR / "assets" / "templates" / file_name
+    if not template_path.exists():
+        return JsonResponse({"error": "Template file not found."}, status=404)
+    return JsonResponse({
+        "fileName": file_name,
+        "path": f"assets/templates/{file_name}",
+        "storage": "local",
+    })
+
+
 def state(request):
     return JsonResponse(filtered_state(full_state(), current_user(request)))
 
@@ -440,6 +481,12 @@ def item(request, resource, item_id):
     if request.method == "PATCH":
         if resource == "events" and not can_manage_event(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+        if resource == "vendor-products":
+            if not can_manage_vendor_product(user, data):
+                return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+            data.update(vendor_product_payload(body_json(request), user, data))
+            save_existing(kind, data)
+            return JsonResponse(data)
         if resource == "content":
             if not can_manage_content_item(user, data):
                 return JsonResponse({"error": "You do not have permission for this action."}, status=403)
@@ -461,6 +508,8 @@ def item(request, resource, item_id):
         return JsonResponse(data)
     if request.method == "DELETE":
         if resource == "events" and not can_manage_event(user, data):
+            return JsonResponse({"error": "You do not have permission for this action."}, status=403)
+        if resource == "vendor-products" and not can_manage_vendor_product(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
         if resource == "content" and not can_manage_content_item(user, data):
             return JsonResponse({"error": "You do not have permission for this action."}, status=403)
@@ -498,6 +547,15 @@ def action(request, resource, item_id, action):
         if result.get("permissionError"):
             return JsonResponse({"error": result["error"]}, status=403)
         return JsonResponse(result, status=400 if result.get("error") else 200)
+    if resource == "vendors" and action == "approve":
+        result = approve_vendor(item_id, user)
+        return JsonResponse(result, status=403 if result.get("permissionError") else 400 if result.get("error") else 200)
+    if resource == "vendor-products" and action in {"approve", "activate", "deactivate"}:
+        result = update_vendor_product_status(item_id, action, user)
+        return JsonResponse(result, status=403 if result.get("permissionError") else 400 if result.get("error") else 200)
+    if resource == "market-orders" and action in {"advance", "message"}:
+        result = update_market_order(item_id, action, user, body_json(request))
+        return JsonResponse(result, status=403 if result.get("permissionError") else 400 if result.get("error") else 200)
     if resource == "event-registrations" and action in {"cancel", "mark-paid"}:
         return JsonResponse(update_registration(item_id, action, user))
     if resource == "notifications" and item_id == "read":
@@ -653,12 +711,106 @@ def create_content(payload, user):
     return upsert("content", content)
 
 
+def create_vendor(payload, user):
+    vendor = {
+        "id": create_id("vendor", payload.get("name") or user.get("email") or "vendor"),
+        "name": payload.get("name") or "Vendor partner",
+        "category": payload.get("category") or "EdTech",
+        "contact": payload.get("contact") or user.get("email") or "",
+        "offer": payload.get("offer") or "",
+        "status": "Pending approval" if user.get("role") != "Super Admin" else "Approved",
+        "featured": False,
+        "documents": payload.get("documents") or "",
+        "serviceAreas": payload.get("serviceAreas") or "Member schools",
+        "createdAt": now_iso(),
+    }
+    upsert("vendors", vendor)
+    if user.get("role") == "Vendor":
+        upsert("users", {**user, "id": user.get("userId") or f"user-{slug(user.get('email') or vendor['contact'])}", "vendorId": vendor["id"], "email": vendor["contact"], "role": "Vendor", "status": "Active"})
+    return vendor
+
+
+def vendor_for_user(user):
+    vendors = entities("vendors")
+    return (
+        next((item for item in vendors if item.get("id") == user.get("vendorId")), None)
+        or next((item for item in vendors if str(item.get("contact", "")).lower() == str(user.get("email", "")).lower()), None)
+        or (vendors[0] if user.get("role") == "Vendor" and vendors else None)
+    )
+
+
+def create_vendor_product(payload, user):
+    vendor = vendor_for_user(user)
+    if user.get("role") == "Vendor" and not vendor:
+        vendor = create_vendor({"name": f"{(user.get('email') or 'Vendor').split('@')[0]} Store", "contact": user.get("email"), "category": payload.get("category")}, user)
+    if not vendor:
+        return {"error": "Vendor profile is required before uploading products."}
+    product = {
+        "id": create_id("product", payload.get("name") or "product"),
+        "vendorId": vendor["id"],
+        "vendorName": vendor.get("name"),
+        "name": payload.get("name") or "Untitled product",
+        "category": payload.get("category") or vendor.get("category") or "EdTech",
+        "description": payload.get("description") or "",
+        "price": float(payload.get("price") or 0),
+        "stock": int(payload.get("stock") or 0),
+        "audience": payload.get("audience") or "Schools",
+        "delivery": payload.get("delivery") or "Standard delivery",
+        "imageUrl": payload.get("imageUrl") or "",
+        "status": "Pending approval" if user.get("role") == "Vendor" else "Active",
+        "rating": float(payload.get("rating") or 0),
+        "createdAt": now_iso(),
+    }
+    return upsert("vendorProducts", product)
+
+
+def create_market_order(payload, user):
+    cart_items = payload.get("items") or []
+    products = entities("vendorProducts")
+    order_items = []
+    total = 0
+    for cart_item in cart_items:
+        product = next((item for item in products if item.get("id") == cart_item.get("productId") and item.get("status", "Active") in {"Active", "Approved"}), None)
+        if not product:
+            continue
+        quantity = int(cart_item.get("quantity") or 1)
+        price = float(product.get("price") or 0)
+        total += price * quantity
+        order_items.append({
+            "productId": product["id"],
+            "vendorId": product.get("vendorId"),
+            "name": product.get("name"),
+            "quantity": quantity,
+            "price": price,
+        })
+    if not order_items:
+        return {"error": "Add at least one active product before checkout."}
+    order = {
+        "id": f"YAARA-ORD-{1000 + len(entities('marketOrders')) + 1}",
+        "schoolId": user.get("schoolId") or "",
+        "buyerId": user.get("studentId") or user.get("userId") or "",
+        "buyerEmail": user.get("email") or "",
+        "buyerRole": user.get("role"),
+        "buyerName": user.get("email") or user.get("role"),
+        "items": order_items,
+        "total": total,
+        "status": "RFQ Submitted",
+        "tracking": ["RFQ Submitted"],
+        "messages": [],
+        "createdAt": now_iso(),
+    }
+    return upsert("marketOrders", order)
+
+
 CREATE_HANDLERS = {
     "schools": create_school,
     "events": create_event,
     "exchanges": create_exchange,
     "payments": create_payment,
     "content": create_content,
+    "vendors": create_vendor,
+    "vendor-products": create_vendor_product,
+    "market-orders": create_market_order,
 }
 
 
@@ -682,11 +834,106 @@ def can_manage_content_item(user, content):
     )
 
 
+def vendor_product_payload(payload, user, existing=None):
+    status = (existing or {}).get("status") or ("Pending approval" if user.get("role") == "Vendor" else "Active")
+    if user.get("role") == "Vendor":
+        status = "Pending approval" if status != "Inactive" else "Inactive"
+    return {
+        "name": payload.get("name") or (existing or {}).get("name") or "Untitled product",
+        "category": payload.get("category") or (existing or {}).get("category") or "EdTech",
+        "description": payload.get("description") or "",
+        "price": float(payload.get("price") or 0),
+        "stock": int(payload.get("stock") or 0),
+        "audience": payload.get("audience") or "Schools",
+        "delivery": payload.get("delivery") or "Standard delivery",
+        "imageUrl": payload.get("imageUrl") or "",
+        "status": status,
+    }
+
+
+def can_manage_vendor_product(user, product):
+    return user["role"] == "Super Admin" or (
+        user["role"] == "Vendor" and product.get("vendorId") == user.get("vendorId")
+    )
+
+
+def approve_vendor(vendor_id, user):
+    if user.get("role") != "Super Admin":
+        return {"error": "Only Super Admin can approve vendors.", "permissionError": True}
+    vendor = find_one("vendors", vendor_id)
+    if not vendor:
+        return {"error": "Vendor not found."}
+    vendor["status"] = "Approved"
+    vendor["approvedAt"] = now_iso()
+    vendor["approvedBy"] = user.get("email") or "Super Admin"
+    return save_existing("vendors", vendor)
+
+
+def update_vendor_product_status(product_id, action_name, user):
+    product = find_one("vendorProducts", product_id)
+    if not product:
+        return {"error": "Product not found."}
+    if action_name == "approve" and user.get("role") != "Super Admin":
+        return {"error": "Only Super Admin can approve products.", "permissionError": True}
+    if action_name != "approve" and not can_manage_vendor_product(user, product):
+        return {"error": "You do not have permission for this action.", "permissionError": True}
+    status_map = {"approve": "Active", "activate": "Active", "deactivate": "Inactive"}
+    product["status"] = status_map[action_name]
+    product["updatedAt"] = now_iso()
+    return save_existing("vendorProducts", product)
+
+
+def can_access_market_order(user, order):
+    if user.get("role") == "Super Admin":
+        return True
+    if user.get("role") == "Vendor":
+        return any(item.get("vendorId") == user.get("vendorId") for item in order.get("items", []))
+    if user.get("role") in {"School Admin", "Teacher"}:
+        return order.get("schoolId") == user.get("schoolId") or order.get("buyerEmail") == user.get("email")
+    if user.get("role") == "Student":
+        return order.get("buyerEmail") == user.get("email") or order.get("buyerId") == user.get("studentId")
+    return False
+
+
+def update_market_order(order_id, action_name, user, payload):
+    order = find_one("marketOrders", order_id)
+    if not order:
+        return {"error": "Order not found."}
+    if not can_access_market_order(user, order):
+        return {"error": "You do not have permission for this action.", "permissionError": True}
+    if action_name == "message":
+        message = str(payload.get("message") or "").strip()
+        if not message:
+            return {"error": "Message is required."}
+        messages = order.get("messages") or []
+        messages.append({"id": create_id("order-msg", order_id), "author": user.get("email") or user.get("role"), "role": user.get("role"), "message": message, "createdAt": now_iso()})
+        order["messages"] = messages
+        return save_existing("marketOrders", order)
+    if user.get("role") not in {"Vendor", "Super Admin", "School Admin"}:
+        return {"error": "You do not have permission for this action.", "permissionError": True}
+    flow = ["RFQ Submitted", "Quote Sent", "Approved by School", "PO Issued", "Payment Pending", "Processing", "Delivered", "Closed"]
+    current = order.get("status") or flow[0]
+    if current == "Closed":
+        return order
+    if user.get("role") == "Vendor" and current not in {"RFQ Submitted", "Payment Pending", "Processing"}:
+        return {"error": "Waiting for school or admin action.", "permissionError": True}
+    if user.get("role") == "School Admin" and current not in {"Quote Sent", "Approved by School"}:
+        return {"error": "Waiting for vendor action.", "permissionError": True}
+    next_status = flow[min(flow.index(current) + 1, len(flow) - 1)] if current in flow else flow[0]
+    order["status"] = next_status
+    tracking = order.get("tracking") or []
+    if next_status not in tracking:
+        tracking.append(next_status)
+    order["tracking"] = tracking
+    order["updatedAt"] = now_iso()
+    return save_existing("marketOrders", order)
+
+
 def delete_school(school):
     school_id = school.get("id")
     school_name = school.get("name")
     removed = {}
-    for kind in ["schools", "users", "students", "teachers", "payments", "events", "eventRegistrations", "content", "teacherResources", "reviewCycles", "marketOrders"]:
+    for kind in ["schools", "users", "students", "teachers", "payments", "events", "eventRegistrations", "content", "reviewCycles", "marketOrders"]:
         before = Entity.objects.filter(kind=kind).count()
         for item in entities(kind):
             if item.get("id") == school_id or item.get("schoolId") == school_id:

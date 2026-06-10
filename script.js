@@ -223,9 +223,9 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "myProfile", "teachersHub", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "myProfile", "teachersHub", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "myProfile", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
+  Teacher: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
@@ -286,13 +286,6 @@ const tutorialModuleDetails = {
     challenge: "Check how your role and school context shape what the platform shows you.",
     target: "#myProfile .section-bar",
     actions: ["Open My Profile.", "Review role, email, school, grade or designation.", "Use Update profile to add contact and context details."]
-  },
-  teachersHub: {
-    title: "Teachers Hub",
-    goal: "Keep staff resources, PL sessions, and recordings in one school-only workspace.",
-    challenge: "Add a staff resource and confirm it appears under the correct resource type.",
-    target: "#teachersHub .section-bar",
-    actions: ["Click Add resource.", "Choose Upcoming PL Session, Past Recording, or Resource Document.", "Add a link or file name so staff know where to access it."]
   },
   library: {
     title: "Content library",
@@ -372,7 +365,6 @@ const metricsGrid = document.querySelector(".metrics-grid");
 const notificationButton = document.querySelector("#notificationButton");
 const contentPostButton = document.querySelector("#contentPostButton");
 const profileEditButton = document.querySelector("#profileEditButton");
-const teacherResourceButton = document.querySelector("#teacherResourceButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const paymentConfig = document.querySelector("#paymentConfig");
 const paymentRescueButton = document.querySelector("#paymentRescueButton");
@@ -390,6 +382,7 @@ let libraryCategory = "All";
 let libraryAudience = "All";
 let librarySortMode = "latest";
 let marketTab = "products";
+let marketVendorFilter = "All";
 let marketCart = [];
 let paymentConfigState = {};
 let pendingUpload = null;
@@ -1050,8 +1043,7 @@ const schoolDeletionSummary = (school) => {
     registrations: (state.eventRegistrations || []).filter((registration) => registration.schoolId === school.id || eventIds.includes(registration.eventId)).length,
     content: (state.content || []).filter((item) => item.schoolId === school.id).length,
     exchanges: (state.exchanges || []).filter((exchange) => exchange.schoolId === school.id || exchange.fromSchool === school.name).length,
-    orders: (state.marketOrders || []).filter((order) => order.schoolId === school.id).length,
-    resources: (state.teacherResources || []).filter((resource) => resource.schoolId === school.id).length
+    orders: (state.marketOrders || []).filter((order) => order.schoolId === school.id).length
   };
 };
 
@@ -1360,31 +1352,6 @@ const renderMyProfile = () => {
   `;
 };
 
-const renderTeachersHub = () => {
-  const grid = document.querySelector("#teacherResourceGrid");
-  if (!grid) return;
-  const buckets = ["Upcoming PL Session", "Past Recording", "Resource Document"];
-  const resources = state.teacherResources || [];
-  if (teacherResourceButton) teacherResourceButton.hidden = currentRole() === "Student" || currentRole() === "Vendor";
-  grid.innerHTML = buckets.map((bucket) => {
-    const items = resources.filter((resource) => resource.type === bucket);
-    return `
-      <section class="panel">
-        <p class="eyebrow">${bucket}</p>
-        <h3>${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "No items yet"}</h3>
-        <div class="compact-list">
-          ${items.length ? items.map((item) => `
-            <article>
-              <strong>${item.title}</strong>
-              <span>${item.presenter || item.uploadedBy || "Staff"}${item.sessionDate ? ` - ${item.sessionDate}` : ""}${item.link ? ` - ${item.link}` : ""}</span>
-            </article>
-          `).join("") : `<article><strong>Ready for your first upload</strong><span>Add sessions, recordings, documents, or staff links.</span></article>`}
-        </div>
-      </section>
-    `;
-  }).join("");
-};
-
 const renderSchoolNetwork = () => {
   const grid = document.querySelector("#schoolNetworkGrid");
   if (!grid) return;
@@ -1489,12 +1456,30 @@ const renderVendors = () => {
   const vendorName = (id) => (state.vendors || []).find((vendor) => vendor.id === id)?.name || "Vendor";
   const products = (state.vendorProducts || []).filter((product) => {
     const vendor = (state.vendors || []).find((item) => item.id === product.vendorId);
-    return category === "All categories" || product.category === category || vendor?.category === category;
+    const matchesCategory = category === "All categories" || product.category === category || vendor?.category === category;
+    const matchesVendor = marketVendorFilter === "All" || product.vendorId === marketVendorFilter;
+    const visibleStatus = currentRole() === "Super Admin" || currentRole() === "Vendor" || ["Active", "Approved"].includes(product.status || "Active");
+    return matchesCategory && matchesVendor && visibleStatus;
   });
   const orders = state.marketOrders || [];
+  const vendorStats = {
+    vendors: vendors.length,
+    products: products.length,
+    pendingProducts: (state.vendorProducts || []).filter((product) => product.status === "Pending approval").length,
+    orders: orders.length
+  };
 
   if (marketCartButton) marketCartButton.textContent = `Cart ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
   document.querySelectorAll(".market-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.marketTab === marketTab));
+  const existingInsights = document.querySelector("#marketInsights");
+  if (existingInsights) {
+    existingInsights.innerHTML = `
+      <article><strong>${vendorStats.vendors}</strong><span>vendors</span></article>
+      <article><strong>${vendorStats.products}</strong><span>visible products</span></article>
+      <article><strong>${vendorStats.pendingProducts}</strong><span>pending products</span></article>
+      <article><strong>${vendorStats.orders}</strong><span>orders / RFQs</span></article>
+    `;
+  }
   document.querySelector("#marketOrders").innerHTML = orders.length
     ? orders
         .slice(0, 5)
@@ -1538,12 +1523,16 @@ const renderVendors = () => {
               <h3>${order.id}</h3>
               <p>${order.buyerName || order.buyerRole} - ${money(order.total || 0)}</p>
               <ol class="order-steps">
-                ${["Placed", "Confirmed", "Packed", "Shipped", "Delivered"].map((step) => `<li class="${order.tracking?.includes(step) ? "done" : ""}">${step}</li>`).join("")}
+                ${["RFQ Submitted", "Quote Sent", "Approved by School", "PO Issued", "Payment Pending", "Processing", "Delivered", "Closed"].map((step) => `<li class="${order.tracking?.includes(step) ? "done" : ""}">${step}</li>`).join("")}
               </ol>
               <div class="compact-list">
                 ${(order.items || []).map((item) => `<article><strong>${item.name}</strong><span>${item.quantity} x ${money(item.price)}</span></article>`).join("")}
               </div>
-              ${currentRole() === "Vendor" && order.status !== "Delivered" ? `<button class="primary-button advance-order-status" type="button" data-id="${order.id}">Advance status</button>` : ""}
+              <div class="post-actions">
+                <button class="ghost-button message-market-order" type="button" data-id="${order.id}">Message</button>
+                ${["Vendor", "School Admin", "Super Admin"].includes(currentRole()) && order.status !== "Closed" ? `<button class="primary-button advance-order-status" type="button" data-id="${order.id}">Advance status</button>` : ""}
+              </div>
+              ${order.messages?.length ? `<div class="comment-preview">${order.messages.slice(-2).map((message) => `<p><strong>${escapeAttribute(message.author)}</strong> ${escapeAttribute(message.message)}</p>`).join("")}</div>` : ""}
             </article>
           `)
           .join("")
@@ -1561,11 +1550,11 @@ const renderVendors = () => {
               <h3>${product.name}</h3>
               <p>${vendorName(product.vendorId)} - ${product.description || "School-ready product"}</p>
               <strong>${money(product.price || 0)}</strong>
-              ${tagList([product.stock > 0 ? `${product.stock} in stock` : "Out of stock", product.audience || "Schools", product.delivery || "Standard delivery"])}
+              ${tagList([product.status || "Active", product.stock > 0 ? `${product.stock} in stock` : "Out of stock", product.audience || "Schools", product.delivery || "Standard delivery"])}
               ${
                 currentRole() === "Vendor"
-                  ? `<button class="ghost-button update-order-status" type="button" data-id="${product.id}">Listed</button>`
-                  : `<button class="primary-button add-to-cart" type="button" data-id="${product.id}">Add to cart</button>`
+                  ? `<div class="post-actions"><button class="ghost-button edit-vendor-product" type="button" data-id="${product.id}">Edit</button><button class="ghost-button danger-button delete-vendor-product" type="button" data-id="${product.id}">Delete</button></div>`
+                  : `<div class="post-actions">${currentRole() === "Super Admin" && product.status === "Pending approval" ? `<button class="primary-button approve-vendor-product" type="button" data-id="${product.id}">Approve product</button>` : ""}<button class="primary-button add-to-cart" type="button" data-id="${product.id}">Add to RFQ</button>${currentRole() === "Super Admin" ? `<button class="ghost-button edit-vendor-product" type="button" data-id="${product.id}">Edit</button>` : ""}</div>`
               }
             </div>
           </article>
@@ -1678,7 +1667,6 @@ const renderAll = () => {
   renderEvents();
   renderExchange();
   renderMyProfile();
-  renderTeachersHub();
   renderLibrary();
   renderVendors();
   renderSchoolNetwork();
@@ -2285,29 +2273,6 @@ profileEditButton.addEventListener("click", () => {
   );
 });
 
-teacherResourceButton.addEventListener("click", () => {
-  modal(
-    "Add Teachers Hub resource",
-    [
-      { label: "Title", name: "title", required: true },
-      { label: "Type", name: "type", type: "select", options: ["Upcoming PL Session", "Past Recording", "Resource Document"] },
-      { label: "Presenter", name: "presenter", value: currentSession()?.name || "" },
-      { label: "Session date", name: "sessionDate", type: "date" },
-      { label: "Session time", name: "sessionTime", type: "time" },
-      { label: "Duration", name: "duration", value: "60 min" },
-      { label: "Capacity", name: "capacity", type: "number", value: "40" },
-      { label: "Meeting / recording link", name: "link", type: "url" },
-      { label: "File name or document reference", name: "fileName" },
-      { label: "Notes", name: "notes", type: "textarea", value: "Add staff instructions or access notes." }
-    ],
-    async (payload) => {
-      await api.create("teacher-resources", payload);
-      showToast("Teachers Hub resource added.");
-      await refresh();
-    }
-  );
-});
-
 document.querySelectorAll("#library .filter-chip[data-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     document.querySelectorAll("#library .filter-chip[data-filter]").forEach((chip) => chip.classList.remove("is-active"));
@@ -2332,22 +2297,28 @@ librarySort?.addEventListener("change", (event) => {
 });
 vendorCategory?.addEventListener("change", renderVendors);
 
-const openVendorProductModal = () => {
+const openVendorProductModal = (existingProduct = null) => {
+  const existing = existingProduct || {};
+  const selected = (value, expected) => value === expected ? "selected" : "";
   modal(
-    "Upload product and pricing",
+    existingProduct ? "Edit product and pricing" : "Upload product and pricing",
     [
-      { label: "Product name", name: "name", required: true },
-      { label: "Category", name: "category", type: "select", options: ["Uniforms", "Books & Stationery", "EdTech", "Furniture & Fixtures", "Transport", "Sports Equipment"] },
-      { label: "Price", name: "price", type: "number", value: "999", required: true },
-      { label: "Stock", name: "stock", type: "number", value: "100" },
-      { label: "Audience", name: "audience", type: "select", options: ["Students", "Teachers", "Schools", "All members"] },
-      { label: "Delivery", name: "delivery", type: "select", options: ["Standard delivery", "Express delivery", "Digital delivery", "School pickup"] },
-      { label: "Image URL", name: "imageUrl", type: "url", value: "" },
-      { label: "Description", name: "description", type: "textarea", value: "Describe what schools, teachers, or students will receive." }
+      { label: "Product name", name: "name", value: existing.name || "", required: true },
+      { label: "Category", name: "category", type: "select", value: existing.category || "EdTech", options: ["Uniforms", "Books & Stationery", "EdTech", "Furniture & Fixtures", "Transport", "Sports Equipment"] },
+      { label: "Price", name: "price", type: "number", value: existing.price || "999", required: true },
+      { label: "Stock", name: "stock", type: "number", value: existing.stock ?? "100" },
+      { label: "Audience", name: "audience", type: "select", value: existing.audience || "Schools", options: ["Students", "Teachers", "Schools", "All members"] },
+      { label: "Delivery", name: "delivery", type: "select", value: existing.delivery || "Standard delivery", options: ["Standard delivery", "Express delivery", "Digital delivery", "School pickup"] },
+      { label: "Image URL", name: "imageUrl", type: "url", value: existing.imageUrl || "" },
+      { label: "Description", name: "description", type: "textarea", value: existing.description || "Describe what schools, teachers, or students will receive." }
     ],
     async (payload) => {
-      await api.create("vendor-products", payload);
-      showToast("Product published to marketplace.");
+      if (existingProduct) {
+        await api.update(`/api/vendor-products/${existingProduct.id}`, payload);
+      } else {
+        await api.create("vendor-products", payload);
+      }
+      showToast(currentRole() === "Vendor" ? "Product submitted for marketplace approval." : "Product saved to marketplace.");
       await refresh();
       setView("vendors");
     }
@@ -2366,8 +2337,8 @@ const openCartModal = () => {
     <div class="modal-card">
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Marketplace checkout</p>
-          <h2>Your cart</h2>
+          <p class="eyebrow">Marketplace RFQ</p>
+          <h2>Your RFQ cart</h2>
         </div>
         <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
       </div>
@@ -2377,12 +2348,12 @@ const openCartModal = () => {
             <strong>${item.name}</strong>
             <span>${item.quantity} x ${money(item.price)} = ${money(item.quantity * item.price)}</span>
           </article>
-        `).join("") : `<article><strong>Cart is empty</strong><span>Add products before checkout.</span></article>`}
+        `).join("") : `<article><strong>RFQ cart is empty</strong><span>Add products before sending a request.</span></article>`}
       </div>
       <div class="cart-total-panel">
         <dl><div><dt>Total</dt><dd>${money(total)}</dd></div></dl>
       </div>
-      <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Place order</button>
+      <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Submit RFQ</button>
     </div>
   `;
   overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
@@ -2395,7 +2366,7 @@ const openCartModal = () => {
       marketCart = [];
       marketTab = "orders";
       overlay.remove();
-      showToast(`Order placed: ${order.id}`);
+      showToast(`RFQ submitted: ${order.id}`);
       await refresh();
       setView("vendors");
     }
@@ -2410,13 +2381,19 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
   const tab = event.target.closest(".market-tab");
   const addToCart = event.target.closest(".add-to-cart");
   const approve = event.target.closest(".approve-vendor");
+  const approveProduct = event.target.closest(".approve-vendor-product");
+  const editProduct = event.target.closest(".edit-vendor-product");
+  const deleteProduct = event.target.closest(".delete-vendor-product");
   const sellerProducts = event.target.closest(".view-seller-products");
   const statusButton = event.target.closest(".advance-order-status");
+  const messageOrder = event.target.closest(".message-market-order");
   if (tab) {
     marketTab = tab.dataset.marketTab;
+    if (marketTab !== "products") marketVendorFilter = "All";
     renderVendors();
   }
   if (sellerProducts) {
+    marketVendorFilter = sellerProducts.dataset.id;
     marketTab = "products";
     renderVendors();
   }
@@ -2432,9 +2409,35 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
     showToast("Vendor approved and published to the directory.");
     await refresh();
   }
+  if (approveProduct) {
+    await api.post(`/api/vendor-products/${approveProduct.dataset.id}/approve`);
+    showToast("Product approved and published.");
+    await refresh();
+    setView("vendors");
+  }
+  if (editProduct) {
+    const product = (state.vendorProducts || []).find((item) => item.id === editProduct.dataset.id);
+    if (product) openVendorProductModal(product);
+  }
+  if (deleteProduct) {
+    const product = (state.vendorProducts || []).find((item) => item.id === deleteProduct.dataset.id);
+    if (!product || !window.confirm(`Delete ${product.name}?`)) return;
+    await api.delete(`/api/vendor-products/${product.id}`);
+    showToast("Product deleted.");
+    await refresh();
+    setView("vendors");
+  }
   if (statusButton) {
     await api.post(`/api/market-orders/${statusButton.dataset.id}/advance`);
     showToast("Order status updated.");
+    await refresh();
+    setView("vendors");
+  }
+  if (messageOrder) {
+    const text = window.prompt("Message about this RFQ/order");
+    if (!text?.trim()) return;
+    await api.post(`/api/market-orders/${messageOrder.dataset.id}/message`, { message: text.trim() });
+    showToast("Order message added.");
     await refresh();
     setView("vendors");
   }

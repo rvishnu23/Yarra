@@ -76,7 +76,6 @@
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
           <button class="nav-item" type="button" data-view="myProfile">My profile</button>
-          <button class="nav-item" type="button" data-view="teachersHub">Teachers Hub</button>
           <button class="nav-item" type="button" data-view="library">Content library</button>
           <button class="nav-item" type="button" data-view="vendorSignup">Vendor sign-up</button>
           <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
@@ -343,18 +342,6 @@
             <div class="profile-layout" id="myProfileGrid"></div>
           </section>
 
-          <section class="view" id="teachersHub" aria-label="Teachers Hub">
-            <div class="section-bar">
-              <div>
-                <p class="eyebrow">Staff workspace</p>
-                <h2>Teachers Hub</h2>
-                <p>Upcoming PL sessions, recordings, and staff-only resource documents.</p>
-              </div>
-              <button class="primary-button" id="teacherResourceButton" type="button">Add resource</button>
-            </div>
-            <div class="three-column-list" id="teacherResourceGrid"></div>
-          </section>
-
           <section class="view" id="library" aria-label="Content library">
             <div class="section-bar">
               <div>
@@ -559,6 +546,7 @@
               </div>
               <button class="ghost-button dark" type="button">Review campaign</button>
             </section>
+            <div class="library-insights" id="marketInsights"></div>
             <div class="market-layout">
               <section>
                 <div class="market-toolbar">
@@ -619,6 +607,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script type="module" src="script.js?v=20260609-library-upgrade"></script>
+    <script type="module" src="script.js?v=20260610-remove-teachers-hub"></script>
   </body>
 </html>
