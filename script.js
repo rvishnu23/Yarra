@@ -2163,8 +2163,8 @@ const setTemplateSaveStatus = (message, status = "") => {
 const updateTemplateDownloadUi = () => {
   const isStudent = uploadType.value === "student_roster";
   downloadTemplateLink.href = isStudent
-    ? "assets/templates/Student Database.xlsx"
-    : "assets/templates/Staff Database.xlsx";
+    ? "assets/templates/Student%20Database.xlsx"
+    : "assets/templates/Staff%20Database.xlsx";
   downloadTemplateLink.download = isStudent ? "Student Database.xlsx" : "Staff Database.xlsx";
   downloadTemplateLink.textContent = `Download ${isStudent ? "Student Database" : "Staff Database"}`;
   setTemplateSaveStatus("Choose a database and download the matching template.");
@@ -2173,34 +2173,10 @@ const updateTemplateDownloadUi = () => {
 uploadType.addEventListener("change", updateTemplateDownloadUi);
 
 downloadTemplateLink.addEventListener("click", async (event) => {
-  event.preventDefault();
   const href = downloadTemplateLink.getAttribute("href");
   const fileName = decodeURIComponent(href.split("/").pop());
-  setTemplateSaveStatus(`Preparing ${fileName}...`);
-  try {
-    await api.saveTemplate(uploadType.value);
-
-    try {
-      const response = await fetch(href);
-      if (!response.ok) throw new Error("Template download failed");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setTemplateSaveStatus(`${fileName} download started. Check your browser downloads.`, "saved");
-      showToast(`${fileName} download started.`);
-    } catch (downloadError) {
-      throw downloadError;
-    }
-  } catch (error) {
-    setTemplateSaveStatus(error.message, "error");
-    showToast(error.message);
-  }
+  setTemplateSaveStatus(`${fileName} download started. Check your browser downloads.`, "saved");
+  showToast(`${fileName} download started.`);
 });
 
 updateTemplateDownloadUi();
