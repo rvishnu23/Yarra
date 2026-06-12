@@ -1,5 +1,8 @@
 import json
 import secrets
+import base64
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
 from django.conf import settings
@@ -57,6 +60,7 @@ STATE_KINDS = [
     "reviewCycles",
     "leadershipThreads",
     "marketOrders",
+    "paymentLinks",
     "exchangeRequests",
     "products",
     "uploadHistory",
@@ -158,12 +162,13 @@ def current_user(request):
     role = session.get("role") or request.headers.get("X-User-Role") or "School Admin"
     return {
         "role": role,
-        "email": session.get("email") or "",
+        "email": session.get("email") or request.headers.get("X-User-Email") or "",
         "userId": session.get("userId") or "",
         "schoolId": session.get("schoolId") or "",
         "studentId": session.get("studentId") or "",
         "teacherId": session.get("teacherId") or "",
         "vendorId": session.get("vendorId") or "",
+        "vendorStatus": session.get("vendorStatus") or "",
     }
 
 
@@ -287,9 +292,9 @@ def filtered_state(data, user):
         data["schools"] = [item for item in data.get("schools", []) if item.get("id") == school_id]
         data["students"] = [student] if student else []
         data["payments"] = []
-        data["vendors"] = [item for item in data.get("vendors", []) if item.get("status") == "Approved"]
-        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if item.get("status", "Active") in {"Active", "Approved"}]
-        data["marketOrders"] = [item for item in data.get("marketOrders", []) if item.get("buyerEmail") == user.get("email") or item.get("buyerId") == user.get("studentId")]
+        data["vendors"] = []
+        data["vendorProducts"] = []
+        data["marketOrders"] = []
         data["content"] = [
             item for item in data.get("content", [])
             if "Student" in (item.get("audience") or ["School Admin", "Teacher", "Student"])
@@ -298,16 +303,22 @@ def filtered_state(data, user):
         return data
     if role == "Vendor":
         vendor_id = user.get("vendorId")
+        vendor_email = str(user.get("email") or "").lower()
         data = {**data}
         data["schools"] = []
         data["students"] = []
         data["events"] = []
         data["content"] = []
-        data["vendors"] = [item for item in data.get("vendors", []) if item.get("id") == vendor_id] or data.get("vendors", [])
-        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if item.get("vendorId") == vendor_id]
+        vendor_records = [
+            item for item in data.get("vendors", [])
+            if item.get("id") == vendor_id or str(item.get("contact", "")).lower() == vendor_email
+        ]
+        approved = any(item.get("status") == "Approved" for item in vendor_records)
+        data["vendors"] = vendor_records
+        data["vendorProducts"] = [item for item in data.get("vendorProducts", []) if approved and item.get("vendorId") == vendor_id]
         data["marketOrders"] = [
             item for item in data.get("marketOrders", [])
-            if any(order_item.get("vendorId") == vendor_id for order_item in item.get("items", []))
+            if approved and any(order_item.get("vendorId") == vendor_id for order_item in item.get("items", []))
         ]
         data["promotions"] = [item for item in data.get("promotions", []) if item.get("vendorId") == vendor_id]
         data["metrics"] = metrics(data)
@@ -336,7 +347,7 @@ def can_write(user, resource):
     if resource == "vendor-products":
         return role in {"Vendor", "Super Admin"}
     if resource == "market-orders":
-        return role in {"Super Admin", "School Admin", "Teacher", "Student"}
+        return role in {"Super Admin", "School Admin", "Teacher"}
     return role in {"Super Admin", "School Admin"}
 
 
@@ -365,6 +376,10 @@ def login(request):
     if not user:
         return JsonResponse({"error": "No Yarra invite was found for this Gmail account."}, status=403)
 
+    vendor = None
+    if role == "Vendor":
+        vendor = next((item for item in entities("vendors") if item.get("id") == user.get("vendorId") or str(item.get("contact", "")).lower() == email), None)
+
     token = secrets.token_urlsafe(32)
     session = {
         "email": email,
@@ -376,6 +391,7 @@ def login(request):
         "studentId": user.get("studentId") or (user.get("id") if role == "Student" else None),
         "teacherId": user.get("teacherId"),
         "vendorId": user.get("vendorId"),
+        "vendorStatus": (vendor or {}).get("status") if role == "Vendor" else "",
         "createdAt": now_iso(),
         "lastSeenAt": now_iso(),
     }
@@ -419,7 +435,177 @@ def switch_role(request):
 
 
 def payment_config(_request):
-    return JsonResponse({"razorpayConfigured": False, "razorpayKeyId": "", "upiPayeeId": "vishnuaravindhr-1@okicici", "upiPayeeName": "Yarra Education Group"})
+    return JsonResponse({
+        "razorpayConfigured": bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET),
+        "razorpayKeyId": settings.RAZORPAY_KEY_ID,
+        "upiPayeeId": settings.UPI_PAYEE_ID,
+        "upiPayeeName": settings.UPI_PAYEE_NAME,
+    })
+
+
+@csrf_exempt
+def razorpay_order(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "API route not found"}, status=404)
+    payload = body_json(request)
+    amount = float(payload.get("amount") or 0)
+    if amount <= 0:
+        return JsonResponse({"error": "Payment amount is required."}, status=400)
+    receipt = payload.get("receipt") or f"yaara_{secrets.token_hex(6)}"
+    return JsonResponse({
+        "id": f"order_sim_{secrets.token_hex(8)}",
+        "amount": int(round(amount * 100)),
+        "currency": "INR",
+        "receipt": receipt,
+        "key": "",
+        "simulated": True,
+        "description": payload.get("description") or "Yarra payment",
+        "reason": "Razorpay keys are not configured locally. Using UPI/manual confirmation for this test payment.",
+    })
+
+
+def create_payment_link_record(payload, user=None):
+    amount = float(payload.get("amount") or 0)
+    if amount <= 0:
+        return {"error": "Payment amount is required."}
+    email = str(payload.get("email") or "").strip().lower()
+    if "@" not in email:
+        return {"error": "School billing email is required."}
+    reference_id = payload.get("referenceId") or payload.get("reference_id") or f"yaara_{secrets.token_hex(6)}"
+    amount_paise = int(round(amount * 100))
+    description = payload.get("description") or "Yarra payment"
+    customer_name = payload.get("name") or payload.get("schoolName") or "Member school"
+    link = None
+    if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
+        request_payload = {
+            "amount": amount_paise,
+            "currency": "INR",
+            "accept_partial": False,
+            "reference_id": reference_id,
+            "description": description,
+            "customer": {
+                "name": customer_name,
+                "email": email,
+            },
+            "notify": {
+                "sms": False,
+                "email": True,
+            },
+            "reminder_enable": True,
+            "notes": {
+                "source": "Yarra vendor marketplace",
+            },
+        }
+        auth = base64.b64encode(f"{settings.RAZORPAY_KEY_ID}:{settings.RAZORPAY_KEY_SECRET}".encode("utf-8")).decode("ascii")
+        request = urllib.request.Request(
+            "https://api.razorpay.com/v1/payment_links",
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Basic {auth}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                razorpay_link = json.loads(response.read().decode("utf-8"))
+            link = {
+                "id": razorpay_link.get("id") or f"plink_{secrets.token_hex(8)}",
+                "reference_id": razorpay_link.get("reference_id") or reference_id,
+                "amount": razorpay_link.get("amount") or amount_paise,
+                "amountRupees": amount,
+                "currency": razorpay_link.get("currency") or "INR",
+                "description": razorpay_link.get("description") or description,
+                "customer": razorpay_link.get("customer") or {"name": customer_name, "email": email},
+                "short_url": razorpay_link.get("short_url") or "",
+                "status": razorpay_link.get("status") or "created",
+                "emailStatus": "Sent by Razorpay",
+                "emailSentTo": email,
+                "emailSentAt": now_iso(),
+                "simulated": False,
+                "providerResponse": razorpay_link,
+                "createdBy": (user or {}).get("email") or (user or {}).get("role") or "System",
+            }
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            return {"error": f"Razorpay payment link failed: {detail}"}
+        except urllib.error.URLError as error:
+            return {"error": f"Unable to reach Razorpay: {error.reason}"}
+    if link is None:
+        link_id = f"plink_{secrets.token_hex(8)}"
+        link = {
+            "id": link_id,
+            "reference_id": reference_id,
+            "amount": amount_paise,
+            "amountRupees": amount,
+            "currency": "INR",
+            "description": description,
+            "customer": {
+                "name": customer_name,
+                "email": email,
+            },
+            "short_url": f"https://rzp.io/i/{link_id[-8:]}",
+            "status": "created",
+            "emailStatus": "Simulated only",
+            "emailSentTo": email,
+            "emailSentAt": now_iso(),
+            "simulated": True,
+            "createdBy": (user or {}).get("email") or (user or {}).get("role") or "System",
+        }
+    return upsert("paymentLinks", link)
+
+
+def razorpay_request(path, method="GET", payload=None):
+    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+        return {"error": "Razorpay keys are not configured."}
+    auth = base64.b64encode(f"{settings.RAZORPAY_KEY_ID}:{settings.RAZORPAY_KEY_SECRET}".encode("utf-8")).decode("ascii")
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        f"https://api.razorpay.com/v1/{path.lstrip('/')}",
+        data=data,
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        return {"error": f"Razorpay request failed: {detail}"}
+    except urllib.error.URLError as error:
+        return {"error": f"Unable to reach Razorpay: {error.reason}"}
+
+
+@csrf_exempt
+def razorpay_link(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "API route not found"}, status=404)
+    result = create_payment_link_record(body_json(request), current_user(request))
+    if result.get("error"):
+        return JsonResponse({"error": result["error"]}, status=400)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def upi_intent(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "API route not found"}, status=404)
+    payload = body_json(request)
+    amount = float(payload.get("amount") or 0)
+    payee_id = settings.UPI_PAYEE_ID
+    payee_name = settings.UPI_PAYEE_NAME
+    note = payload.get("note") or "Yarra payment"
+    uri = f"upi://pay?pa={payee_id}&pn={payee_name.replace(' ', '%20')}&am={amount:.2f}&cu=INR&tn={str(note).replace(' ', '%20')}"
+    return JsonResponse({
+        "amount": amount,
+        "payeeId": payee_id,
+        "payeeName": payee_name,
+        "note": note,
+        "uri": uri,
+    })
 
 
 @csrf_exempt
@@ -553,7 +739,7 @@ def action(request, resource, item_id, action):
     if resource == "vendor-products" and action in {"approve", "activate", "deactivate"}:
         result = update_vendor_product_status(item_id, action, user)
         return JsonResponse(result, status=403 if result.get("permissionError") else 400 if result.get("error") else 200)
-    if resource == "market-orders" and action in {"advance", "message"}:
+    if resource == "market-orders" and action in {"advance", "message", "payment-link", "confirm-payment", "pay"}:
         result = update_market_order(item_id, action, user, body_json(request))
         return JsonResponse(result, status=403 if result.get("permissionError") else 400 if result.get("error") else 200)
     if resource == "event-registrations" and action in {"cancel", "mark-paid"}:
@@ -712,11 +898,12 @@ def create_content(payload, user):
 
 
 def create_vendor(payload, user):
+    contact = str(payload.get("contact") or user.get("email") or "").strip().lower()
     vendor = {
         "id": create_id("vendor", payload.get("name") or user.get("email") or "vendor"),
         "name": payload.get("name") or "Vendor partner",
         "category": payload.get("category") or "EdTech",
-        "contact": payload.get("contact") or user.get("email") or "",
+        "contact": contact,
         "offer": payload.get("offer") or "",
         "status": "Pending approval" if user.get("role") != "Super Admin" else "Approved",
         "featured": False,
@@ -726,7 +913,7 @@ def create_vendor(payload, user):
     }
     upsert("vendors", vendor)
     if user.get("role") == "Vendor":
-        upsert("users", {**user, "id": user.get("userId") or f"user-{slug(user.get('email') or vendor['contact'])}", "vendorId": vendor["id"], "email": vendor["contact"], "role": "Vendor", "status": "Active"})
+        upsert("users", {**user, "id": user.get("userId") or f"user-{slug(user.get('email') or vendor['contact'])}", "vendorId": vendor["id"], "email": vendor["contact"], "role": "Vendor", "status": "Pending approval"})
     return vendor
 
 
@@ -735,7 +922,6 @@ def vendor_for_user(user):
     return (
         next((item for item in vendors if item.get("id") == user.get("vendorId")), None)
         or next((item for item in vendors if str(item.get("contact", "")).lower() == str(user.get("email", "")).lower()), None)
-        or (vendors[0] if user.get("role") == "Vendor" and vendors else None)
     )
 
 
@@ -745,6 +931,8 @@ def create_vendor_product(payload, user):
         vendor = create_vendor({"name": f"{(user.get('email') or 'Vendor').split('@')[0]} Store", "contact": user.get("email"), "category": payload.get("category")}, user)
     if not vendor:
         return {"error": "Vendor profile is required before uploading products."}
+    if user.get("role") == "Vendor" and vendor.get("status") != "Approved":
+        return {"error": "Yarra must approve your vendor application before you can add marketplace products."}
     product = {
         "id": create_id("product", payload.get("name") or "product"),
         "vendorId": vendor["id"],
@@ -795,6 +983,7 @@ def create_market_order(payload, user):
         "items": order_items,
         "total": total,
         "status": "RFQ Submitted",
+        "paymentStatus": "Not required until quote approval",
         "tracking": ["RFQ Submitted"],
         "messages": [],
         "createdAt": now_iso(),
@@ -866,6 +1055,14 @@ def approve_vendor(vendor_id, user):
     vendor["status"] = "Approved"
     vendor["approvedAt"] = now_iso()
     vendor["approvedBy"] = user.get("email") or "Super Admin"
+    contact = str(vendor.get("contact") or "").lower()
+    for vendor_user in entities("users"):
+        if vendor_user.get("role") == "Vendor" and (
+            vendor_user.get("vendorId") == vendor_id or str(vendor_user.get("email", "")).lower() == contact
+        ):
+            vendor_user["vendorId"] = vendor_id
+            vendor_user["status"] = "Active"
+            save_existing("users", vendor_user)
     return save_existing("vendors", vendor)
 
 
@@ -909,15 +1106,142 @@ def update_market_order(order_id, action_name, user, payload):
         messages.append({"id": create_id("order-msg", order_id), "author": user.get("email") or user.get("role"), "role": user.get("role"), "message": message, "createdAt": now_iso()})
         order["messages"] = messages
         return save_existing("marketOrders", order)
+    if action_name == "payment-link":
+        if user.get("role") not in {"School Admin", "Super Admin"}:
+            return {"error": "Only the school or Super Admin can send this payment link.", "permissionError": True}
+        if user.get("role") == "School Admin" and not can_access_market_order(user, order):
+            return {"error": "You do not have permission for this action.", "permissionError": True}
+        if order.get("status") != "Approved by School":
+            return {"error": "Payment link is available only after the school approves the quote."}
+        email = str(payload.get("email") or order.get("buyerEmail") or user.get("email") or "").strip().lower()
+        link = create_payment_link_record({
+            "amount": order.get("total") or 0,
+            "email": email,
+            "name": order.get("buyerName") or email or "Member school",
+            "schoolName": order.get("buyerName") or "Member school",
+            "referenceId": order_id,
+            "description": payload.get("description") or f"Vendor marketplace payment for {order_id}",
+        }, user)
+        if link.get("error"):
+            return link
+        order["paymentStatus"] = f"Payment link sent to {email}"
+        order["paymentLinkId"] = link["id"]
+        order["paymentLinkSentAt"] = link["emailSentAt"]
+        messages = order.get("messages") or []
+        messages.append({
+            "id": create_id("order-msg", order_id),
+            "author": "Yarra Payments",
+            "role": "System",
+            "message": f"Razorpay payment link sent to {email}.",
+            "createdAt": now_iso(),
+        })
+        order["messages"] = messages
+        order["updatedAt"] = now_iso()
+        return save_existing("marketOrders", order)
+    if action_name == "confirm-payment":
+        if user.get("role") not in {"School Admin", "Super Admin", "Vendor"}:
+            return {"error": "You do not have permission for this action.", "permissionError": True}
+        if order.get("status") not in {"Approved by School", "Paid"}:
+            return {"error": "Payment can be confirmed only after school approval."}
+        link_id = order.get("paymentLinkId")
+        if not link_id:
+            return {"error": "Send a Razorpay payment link before checking payment."}
+        link = find_one("paymentLinks", link_id) or {"id": link_id}
+        provider_link = link.get("providerResponse") or {}
+        if not link.get("simulated"):
+            provider_link = razorpay_request(f"payment_links/{link_id}")
+            if provider_link.get("error"):
+                return provider_link
+            link.update({
+                "status": provider_link.get("status") or link.get("status"),
+                "providerResponse": provider_link,
+                "payments": provider_link.get("payments") or [],
+                "updatedAt": now_iso(),
+            })
+            save_existing("paymentLinks", link)
+        status = provider_link.get("status") or link.get("status")
+        if status != "paid":
+            order["paymentStatus"] = f"Awaiting Razorpay payment confirmation ({status or 'created'})"
+            order["updatedAt"] = now_iso()
+            save_existing("marketOrders", order)
+            return {"error": order["paymentStatus"], **order}
+        payments = provider_link.get("payments") or link.get("payments") or []
+        gateway_payment_id = (payments[0] or {}).get("payment_id") if payments else link_id
+        payment = {
+            "id": create_id("pay", order_id),
+            "invoice": f"YAARA-INV-{1000 + Entity.objects.filter(kind='payments').count() + 1}",
+            "schoolId": order.get("schoolId"),
+            "type": "Vendor Marketplace",
+            "amount": order.get("total") or 0,
+            "status": "Paid",
+            "method": "Razorpay Payment Link",
+            "gatewayPaymentId": gateway_payment_id,
+            "gatewayOrderId": link_id,
+            "marketOrderId": order_id,
+            "createdAt": datetime.now().date().isoformat(),
+        }
+        upsert("payments", payment)
+        order["status"] = "Paid"
+        order["paymentStatus"] = "Paid"
+        order["paidAt"] = now_iso()
+        order["paymentId"] = payment["id"]
+        tracking = order.get("tracking") or []
+        if "Paid" not in tracking:
+            tracking.append("Paid")
+        order["tracking"] = tracking
+        messages = order.get("messages") or []
+        messages.append({
+            "id": create_id("order-msg", order_id),
+            "author": "Yarra Payments",
+            "role": "System",
+            "message": "Razorpay payment confirmed. Vendor can now deliver the order.",
+            "createdAt": now_iso(),
+        })
+        order["messages"] = messages
+        order["updatedAt"] = now_iso()
+        return save_existing("marketOrders", order)
+    if action_name == "pay":
+        if user.get("role") not in {"School Admin", "Super Admin"}:
+            return {"error": "Only the school or Super Admin can pay this request.", "permissionError": True}
+        if user.get("role") == "School Admin" and not can_access_market_order(user, order):
+            return {"error": "You do not have permission for this action.", "permissionError": True}
+        if order.get("status") != "Approved by School":
+            return {"error": "Payment is available only after the school approves the quote."}
+        payment = {
+            "id": create_id("pay", order_id),
+            "invoice": f"YAARA-INV-{1000 + Entity.objects.filter(kind='payments').count() + 1}",
+            "schoolId": order.get("schoolId"),
+            "type": "Vendor Marketplace",
+            "amount": order.get("total") or 0,
+            "status": "Paid",
+            "method": payload.get("method") or "Razorpay",
+            "gatewayPaymentId": payload.get("gatewayPaymentId"),
+            "gatewayOrderId": payload.get("gatewayOrderId"),
+            "marketOrderId": order_id,
+            "createdAt": datetime.now().date().isoformat(),
+        }
+        upsert("payments", payment)
+        order["status"] = "Paid"
+        order["paymentStatus"] = "Paid"
+        order["paidAt"] = now_iso()
+        order["paymentId"] = payment["id"]
+        tracking = order.get("tracking") or []
+        if "Paid" not in tracking:
+            tracking.append("Paid")
+        order["tracking"] = tracking
+        order["updatedAt"] = now_iso()
+        return save_existing("marketOrders", order)
     if user.get("role") not in {"Vendor", "Super Admin", "School Admin"}:
         return {"error": "You do not have permission for this action.", "permissionError": True}
-    flow = ["RFQ Submitted", "Quote Sent", "Approved by School", "PO Issued", "Payment Pending", "Processing", "Delivered", "Closed"]
+    flow = ["RFQ Submitted", "Quote Sent", "Approved by School", "Paid", "Delivered", "Closed"]
     current = order.get("status") or flow[0]
+    if current in {"PO Issued", "Payment Pending", "Processing"}:
+        current = "Paid"
     if current == "Closed":
         return order
-    if user.get("role") == "Vendor" and current not in {"RFQ Submitted", "Payment Pending", "Processing"}:
+    if user.get("role") == "Vendor" and current not in {"RFQ Submitted", "Paid"}:
         return {"error": "Waiting for school or admin action.", "permissionError": True}
-    if user.get("role") == "School Admin" and current not in {"Quote Sent", "Approved by School"}:
+    if user.get("role") == "School Admin" and current not in {"Quote Sent", "Delivered"}:
         return {"error": "Waiting for vendor action.", "permissionError": True}
     next_status = flow[min(flow.index(current) + 1, len(flow) - 1)] if current in flow else flow[0]
     order["status"] = next_status

@@ -223,10 +223,10 @@ const api = {
 };
 
 const rolePermissions = {
-  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "myProfile", "library", "vendorSignup", "vendors", "schoolNetwork", "profiles"],
-  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
-  Teacher: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
-  Student: ["dashboard", "events", "exchange", "myProfile", "library", "vendors", "schoolNetwork", "profiles"],
+  "Super Admin": ["dashboard", "userManagement", "schoolDashboard", "onboarding", "payments", "events", "exchange", "library", "vendorSignup", "vendors", "schoolNetwork"],
+  "School Admin": ["dashboard", "userManagement", "schoolDashboard", "payments", "events", "exchange", "library", "vendors", "schoolNetwork"],
+  Teacher: ["dashboard", "events", "exchange", "library", "vendors", "schoolNetwork"],
+  Student: ["dashboard", "events", "exchange", "library", "schoolNetwork"],
   Vendor: ["dashboard", "vendorSignup", "vendors"]
 };
 
@@ -280,13 +280,6 @@ const tutorialModuleDetails = {
     target: "#exchange .kanban",
     actions: ["Create a draft exchange request.", "Submit it for Yarra approval.", "Track applications, school approvals, coordination messages, activity updates, completion, and feedback."]
   },
-  myProfile: {
-    title: "My Profile",
-    goal: "Review and maintain personal, academic, staff, and school identity details.",
-    challenge: "Check how your role and school context shape what the platform shows you.",
-    target: "#myProfile .section-bar",
-    actions: ["Open My Profile.", "Review role, email, school, grade or designation.", "Use Update profile to add contact and context details."]
-  },
   library: {
     title: "Content library",
     goal: "Search and filter workshops, podcasts, webinars, and articles.",
@@ -296,47 +289,65 @@ const tutorialModuleDetails = {
   },
   vendorSignup: {
     title: "Vendor sign-up",
-    goal: "Explain Yarra vendor procedures, benefits, contacts, and application steps.",
-    challenge: "Review the procedure list and sample vendor workspace previews.",
+    goal: "Submit a vendor application and wait for Super Admin approval before marketplace access opens.",
+    challenge: "Review the three steps, submit the vendor details form, and note that products are blocked until approval.",
     target: "#vendorSignup .vendor-hero",
-    actions: ["Read the vendor hosting procedure.", "Check Akshar Arbol admin contact details.", "Use Apply as vendor to jump to the application form.", "Review sample platform images before applying."]
+    actions: ["Read Apply, Get approved, and Sell to schools.", "Use Start application.", "Submit company details for Super Admin review.", "After submission, stay on this page until approval is granted."]
   },
   vendors: {
     title: "Vendor marketplace",
-    goal: "Browse vendor categories, approvals, featured placements, and procurement opportunities.",
-    challenge: "Use the category filter and find where approvals or promotions appear.",
+    goal: "Review vendors, approve listings, manage products, and track school requests.",
+    challenge: "Super Admin approves pending vendors and products; schools request products; approved vendors respond and deliver.",
     target: "#vendors .section-bar",
-    actions: ["Use Category to filter vendors.", "Super Admin can approve pending vendors.", "Featured placements and promotions appear in marketplace campaigns."]
+    actions: ["Super Admin reviews pending vendors and clicks Approve vendor.", "Super Admin approves vendor products before schools see them.", "Schools send product requests and payment links.", "Approved vendors reply, confirm payment, and move paid requests to Delivered."]
   },
   schoolNetwork: {
     title: "School Network",
     goal: "Browse the public member-school directory across Yarra.",
     challenge: "Find active schools and compare board, city, and key offerings.",
     target: "#schoolNetwork .section-bar",
-    actions: ["Open School Network.", "Review public member-school cards.", "Only each school's admin should edit its own profile."]
-  },
-  profiles: {
-    title: "School profiles",
-    goal: "Review public member-school profile highlights and achievements.",
-    challenge: "Find where school highlights will appear after you add real school data.",
-    target: "#profiles .profile-layout",
-    actions: ["Review the school profile summary.", "Check highlights and achievements.", "Use this as the member-facing school identity area."]
+    actions: ["Open School Network.", "Review member-school cards.", "Compare board, city, type, and achievements."]
   }
 };
 
 const tutorialRoleIntro = {
   "Super Admin": "You are learning every control: schools, users, payments, vendors, content, events, and moderation-ready workflows.",
   "School Admin": "You are learning the school operating path: onboarding, dashboards, rosters, payments, students, events, and content.",
-  Teacher: "You are learning the educator path: events, exchanges, content, and school profiles.",
-  Student: "You are learning the student path: safe events, exchange options, content, and profiles.",
-  Vendor: "You are learning the vendor path: application, marketplace presence, enquiries, and approved promotions."
+  Teacher: "You are learning the educator path: events, exchanges, content, and the school network.",
+  Student: "You are learning the student path: safe events, exchange options, content, and the school network.",
+  Vendor: "You are learning the vendor path: apply first, wait for Yarra approval, then add products and respond to school requests."
+};
+
+const tutorialIntroForRole = (role = currentRole()) => {
+  if (role === "Vendor" && !isApprovedVendor()) {
+    return "You are in vendor applicant mode: submit your application and wait for Super Admin approval before dashboard or marketplace access opens.";
+  }
+  return tutorialRoleIntro[role] || tutorialRoleIntro["School Admin"];
 };
 
 const currentRole = () => currentSession()?.role || getStoredJson(USER_STORAGE_KEY, {}).role || roleSelect?.value || "School Admin";
 
+const vendorApprovalStatus = () => {
+  if (currentRole() !== "Vendor") return "Approved";
+  const session = currentSession() || {};
+  const email = String(session.email || "").toLowerCase();
+  const vendor = (state.vendors || []).find((item) => item.id === session.vendorId || String(item.contact || "").toLowerCase() === email);
+  if (vendor?.status) return vendor.status;
+  if (session.vendorApplicant) return "Pending approval";
+  return vendor?.status || session.vendorStatus || "Pending approval";
+};
+
+const isApprovedVendor = () => currentRole() !== "Vendor" || vendorApprovalStatus() === "Approved";
+
+const allowedViewsForRole = (role = currentRole()) => {
+  if (role === "Vendor" && !isApprovedVendor()) return ["vendorSignup"];
+  return rolePermissions[role] || rolePermissions["School Admin"];
+};
+
 const authHeaders = (json = true) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
   "X-User-Role": currentRole(),
+  ...(currentSession()?.email ? { "X-User-Email": currentSession().email } : {}),
   ...(currentSession()?.id ? { "X-Session-Id": currentSession().id } : {}),
   "X-Session-Timeout-Minutes": String(selectedSessionTimeoutMinutes())
 });
@@ -345,7 +356,6 @@ const navButtons = document.querySelectorAll(".nav-item");
 const views = document.querySelectorAll(".view");
 const toast = document.querySelector("#toast");
 const loginForm = document.querySelector("#loginForm");
-const gmailLoginButton = document.querySelector("#gmailLoginButton");
 const vendorSignupOpenButton = document.querySelector("#vendorSignupOpenButton");
 const roleSelect = document.querySelector("#roleSelect");
 const loginSessionTimeout = null;
@@ -364,7 +374,6 @@ const librarySort = document.querySelector("#librarySort");
 const metricsGrid = document.querySelector(".metrics-grid");
 const notificationButton = document.querySelector("#notificationButton");
 const contentPostButton = document.querySelector("#contentPostButton");
-const profileEditButton = document.querySelector("#profileEditButton");
 const paymentPanel = document.querySelector(".payment-panel");
 const paymentConfig = document.querySelector("#paymentConfig");
 const paymentRescueButton = document.querySelector("#paymentRescueButton");
@@ -478,7 +487,7 @@ const clearPaymentOverlay = () => {
 };
 
 const setView = (viewId) => {
-  const allowed = rolePermissions[currentRole()] || rolePermissions["School Admin"];
+  const allowed = allowedViewsForRole();
   if (!allowed.includes(viewId)) {
     showToast(`${currentRole()} cannot access that module.`);
     viewId = allowed[0];
@@ -497,13 +506,13 @@ const setView = (viewId) => {
 const requestedView = () => window.location.hash.replace("#", "") || "dashboard";
 
 const tutorialStepsForRole = (role = currentRole()) => {
-  const allowed = rolePermissions[role] || rolePermissions["School Admin"];
+  const allowed = allowedViewsForRole(role);
   return [
     {
       type: "intro",
       view: allowed[0],
       title: `${role} training quest`,
-      goal: tutorialRoleIntro[role] || tutorialRoleIntro["School Admin"],
+      goal: tutorialIntroForRole(role),
       challenge: "Use Next to tour each module. You can skip the tutorial anytime."
     },
     ...allowed.map((view) => ({ type: "module", view, ...tutorialModuleDetails[view] })),
@@ -696,7 +705,7 @@ const contentMediaMarkup = (item, compact = false) => {
 const applyRolePermissions = () => {
   const role = currentRole();
   if (roleSelect && roleSelect.value !== role) roleSelect.value = role;
-  const allowed = rolePermissions[role] || rolePermissions["School Admin"];
+  const allowed = allowedViewsForRole(role);
   navButtons.forEach((button) => {
     button.hidden = !allowed.includes(button.dataset.view);
   });
@@ -707,7 +716,7 @@ const applyRolePermissions = () => {
   if (eventButton) eventButton.hidden = !["Super Admin", "School Admin", "Teacher"].includes(role);
   if (paymentButton) paymentButton.hidden = !["Super Admin", "School Admin"].includes(role);
   if (contentPostButton) contentPostButton.hidden = !canManageContent();
-  if (vendorProductButton) vendorProductButton.hidden = currentRole() !== "Vendor";
+  if (vendorProductButton) vendorProductButton.hidden = currentRole() !== "Vendor" || !isApprovedVendor();
   if (marketCartButton) marketCartButton.hidden = currentRole() === "Vendor";
   if (exchangeButton) exchangeButton.hidden = role === "Vendor";
   if (membershipCard) membershipCard.hidden = role === "Vendor";
@@ -1307,51 +1316,6 @@ const renderExchange = () => {
     .join("");
 };
 
-const signedInProfile = () => {
-  const session = currentSession() || {};
-  const role = currentRole();
-  const school = state.schools?.[0] || {};
-  const student = state.students?.[0] || {};
-  const teacher = state.teachers?.[0] || {};
-  const displayName =
-    session.name ||
-    student.name ||
-    teacher.name ||
-    (role === "Vendor" ? state.vendors?.[0]?.name : school.name) ||
-    "Yarra member";
-  return { session, role, school, student, teacher, displayName };
-};
-
-const renderMyProfile = () => {
-  const grid = document.querySelector("#myProfileGrid");
-  if (!grid) return;
-  const { session, role, school, student, teacher, displayName } = signedInProfile();
-  const details = [
-    ["Role", role],
-    ["Email", session.email || student.email || teacher.email || school.contact || "Not added"],
-    ["School", school.name || "Not linked yet"],
-    ["Grade / Designation", student.grade || teacher.designation || "Not added"],
-    ["Contact", student.guardianEmail || teacher.mobile || school.contact || "Not added"],
-    ["Access", (student.access || ["Yarra member"]).join(", ")]
-  ];
-  grid.innerHTML = `
-    <article class="school-profile">
-      <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
-      <div>
-        <p class="eyebrow">${role}</p>
-        <h3>${displayName}</h3>
-        <p>${role === "Student" ? "Student access is curated by the school admin and filtered by age." : "This profile controls the identity and school context used across Yarra."}</p>
-      </div>
-    </article>
-    <section class="panel">
-      <h3>Profile details</h3>
-      <div class="compact-list">
-        ${details.map(([label, value]) => `<article><strong>${label}</strong><span>${value}</span></article>`).join("")}
-      </div>
-    </section>
-  `;
-};
-
 const renderSchoolNetwork = () => {
   const grid = document.querySelector("#schoolNetworkGrid");
   if (!grid) return;
@@ -1450,6 +1414,13 @@ const renderLibrary = () => {
     : `<article class="panel"><h3>No matching content</h3><p>Try another type, speaker, title, or tag.</p></article>`;
 };
 
+const canAdvanceMarketOrder = (order) => {
+  if (currentRole() === "Super Admin") return order.status !== "Closed";
+  if (currentRole() === "Vendor") return ["RFQ Submitted", "Paid"].includes(order.status);
+  if (currentRole() === "School Admin") return ["Quote Sent", "Delivered"].includes(order.status);
+  return false;
+};
+
 const renderVendors = () => {
   const category = vendorCategory.value;
   const vendors = (state.vendors || []).filter((vendor) => category === "All categories" || vendor.category === category);
@@ -1469,15 +1440,15 @@ const renderVendors = () => {
     orders: orders.length
   };
 
-  if (marketCartButton) marketCartButton.textContent = `Cart ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
+  if (marketCartButton) marketCartButton.textContent = `Request ${marketCart.reduce((sum, item) => sum + item.quantity, 0)}`;
   document.querySelectorAll(".market-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.marketTab === marketTab));
   const existingInsights = document.querySelector("#marketInsights");
   if (existingInsights) {
     existingInsights.innerHTML = `
       <article><strong>${vendorStats.vendors}</strong><span>vendors</span></article>
-      <article><strong>${vendorStats.products}</strong><span>visible products</span></article>
-      <article><strong>${vendorStats.pendingProducts}</strong><span>pending products</span></article>
-      <article><strong>${vendorStats.orders}</strong><span>orders / RFQs</span></article>
+      <article><strong>${vendorStats.products}</strong><span>products</span></article>
+      <article><strong>${vendorStats.pendingProducts}</strong><span>waiting approval</span></article>
+      <article><strong>${vendorStats.orders}</strong><span>school requests</span></article>
     `;
   }
   document.querySelector("#marketOrders").innerHTML = orders.length
@@ -1490,7 +1461,7 @@ const renderVendors = () => {
           </article>
         `)
         .join("")
-    : `<article><strong>No orders yet</strong><span>Checkout orders will appear here.</span></article>`;
+    : `<article><strong>No requests yet</strong><span>School product requests will appear here.</span></article>`;
 
   if (marketTab === "vendors") {
     document.querySelector("#marketGrid").innerHTML = vendors.length
@@ -1500,12 +1471,12 @@ const renderVendors = () => {
               eyebrow: vendor.category,
               title: vendor.name,
               body: vendor.offer,
-              tags: [vendor.status, vendor.featured ? "Featured" : "Standard", "Seller storefront"],
+              tags: [vendor.status, vendor.featured ? "Featured" : "Standard"],
               image: imageMap.vendor,
               className: "vendor-card",
               action:
                 vendor.status === "Approved" || currentRole() !== "Super Admin"
-                  ? `<button class="ghost-button view-seller-products" type="button" data-id="${vendor.id}">View products</button>`
+                  ? `<button class="ghost-button view-seller-products" type="button" data-id="${vendor.id}">See products</button>`
                   : `<button class="ghost-button approve-vendor" type="button" data-id="${vendor.id}">Approve vendor</button>`
             })
           )
@@ -1521,22 +1492,24 @@ const renderVendors = () => {
             <article class="market-order-card">
               <p class="eyebrow">${order.status}</p>
               <h3>${order.id}</h3>
-              <p>${order.buyerName || order.buyerRole} - ${money(order.total || 0)}</p>
+              <p>${order.buyerName || order.buyerRole} - ${money(order.total || 0)} - ${order.paymentStatus || "Payment pending after approval"}</p>
               <ol class="order-steps">
-                ${["RFQ Submitted", "Quote Sent", "Approved by School", "PO Issued", "Payment Pending", "Processing", "Delivered", "Closed"].map((step) => `<li class="${order.tracking?.includes(step) ? "done" : ""}">${step}</li>`).join("")}
+                ${["RFQ Submitted", "Quote Sent", "Approved by School", "Paid", "Delivered", "Closed"].map((step) => `<li class="${order.tracking?.includes(step) || order.status === step ? "done" : ""}">${step}</li>`).join("")}
               </ol>
               <div class="compact-list">
                 ${(order.items || []).map((item) => `<article><strong>${item.name}</strong><span>${item.quantity} x ${money(item.price)}</span></article>`).join("")}
               </div>
               <div class="post-actions">
                 <button class="ghost-button message-market-order" type="button" data-id="${order.id}">Message</button>
-                ${["Vendor", "School Admin", "Super Admin"].includes(currentRole()) && order.status !== "Closed" ? `<button class="primary-button advance-order-status" type="button" data-id="${order.id}">Advance status</button>` : ""}
+                ${["School Admin", "Super Admin"].includes(currentRole()) && order.status === "Approved by School" ? `<button class="primary-button pay-market-order" type="button" data-id="${order.id}">Send Razorpay link</button>` : ""}
+                ${["School Admin", "Super Admin", "Vendor"].includes(currentRole()) && order.status === "Approved by School" && order.paymentLinkId ? `<button class="ghost-button confirm-market-payment" type="button" data-id="${order.id}">Check payment</button>` : ""}
+                ${canAdvanceMarketOrder(order) ? `<button class="primary-button advance-order-status" type="button" data-id="${order.id}">Next step</button>` : ""}
               </div>
               ${order.messages?.length ? `<div class="comment-preview">${order.messages.slice(-2).map((message) => `<p><strong>${escapeAttribute(message.author)}</strong> ${escapeAttribute(message.message)}</p>`).join("")}</div>` : ""}
             </article>
           `)
           .join("")
-      : `<article class="panel"><h3>No orders yet</h3><p>Shop products and checkout to create your first order.</p></article>`;
+      : `<article class="panel"><h3>No requests yet</h3><p>Add a product and send your first request.</p></article>`;
     return;
   }
 
@@ -1554,13 +1527,13 @@ const renderVendors = () => {
               ${
                 currentRole() === "Vendor"
                   ? `<div class="post-actions"><button class="ghost-button edit-vendor-product" type="button" data-id="${product.id}">Edit</button><button class="ghost-button danger-button delete-vendor-product" type="button" data-id="${product.id}">Delete</button></div>`
-                  : `<div class="post-actions">${currentRole() === "Super Admin" && product.status === "Pending approval" ? `<button class="primary-button approve-vendor-product" type="button" data-id="${product.id}">Approve product</button>` : ""}<button class="primary-button add-to-cart" type="button" data-id="${product.id}">Add to RFQ</button>${currentRole() === "Super Admin" ? `<button class="ghost-button edit-vendor-product" type="button" data-id="${product.id}">Edit</button>` : ""}</div>`
+                  : `<div class="post-actions">${currentRole() === "Super Admin" && product.status === "Pending approval" ? `<button class="primary-button approve-vendor-product" type="button" data-id="${product.id}">Approve product</button>` : ""}<button class="primary-button add-to-cart" type="button" data-id="${product.id}">Request</button>${currentRole() === "Super Admin" ? `<button class="ghost-button edit-vendor-product" type="button" data-id="${product.id}">Edit</button>` : ""}</div>`
               }
             </div>
           </article>
         `)
         .join("")
-    : `<article class="panel"><h3>No products yet</h3><p>Vendor uploaded products and pricing will appear here.</p></article>`;
+    : `<article class="panel"><h3>No products yet</h3><p>Approved vendor products will appear here.</p></article>`;
 };
 
 const renderPayments = () => {
@@ -1614,26 +1587,6 @@ const renderPaymentConfig = () => {
   }
 };
 
-const renderProfiles = () => {
-  const profileCard = document.querySelector("#profiles .school-profile div");
-  const profileHighlights = document.querySelector("#profiles .clean-list");
-  if (!profileCard || !profileHighlights) return;
-  const activeSchool = state.schools[0];
-  if (!activeSchool) {
-    profileCard.innerHTML = `<p class="eyebrow">No profile yet</p><h3>Add your first school</h3><p>School profile details appear after onboarding.</p>`;
-    profileHighlights.innerHTML = `<li>No highlights added yet</li>`;
-    return;
-  }
-  profileCard.innerHTML = `
-    <p class="eyebrow">${activeSchool.board} - ${activeSchool.city}</p>
-    <h3>${activeSchool.name}</h3>
-    <p>${activeSchool.name} is a ${activeSchool.type} member school with ${activeSchool.status.toLowerCase()} consortium access.</p>
-  `;
-  profileHighlights.innerHTML = activeSchool.achievements
-    .map((achievement) => `<li>${achievement}</li>`)
-    .join("");
-};
-
 const renderNotifications = () => {
   const unread = state.notifications.filter((notification) => notification.unread).length;
   notificationButton.innerHTML = `<span aria-hidden="true">${unread}</span>`;
@@ -1666,13 +1619,11 @@ const renderAll = () => {
   renderSchoolDashboard();
   renderEvents();
   renderExchange();
-  renderMyProfile();
   renderLibrary();
   renderVendors();
   renderSchoolNetwork();
   renderPayments();
   renderPaymentConfig();
-  renderProfiles();
   renderNotifications();
   renderUploadHistory();
 };
@@ -1853,7 +1804,7 @@ const openRazorpayCheckout = (order, school) =>
       amount: order.amount,
       currency: order.currency || "INR",
       name: "Yaara Education Group",
-      description: `Yarra Consortium membership for ${school.name}`,
+      description: order.description || `Yarra Consortium payment for ${school.name}`,
       image: "assets/yarra-logo.jpeg",
       order_id: order.id,
       method: {
@@ -2009,31 +1960,22 @@ loginForm.addEventListener("submit", async (event) => {
   }
 });
 
-gmailLoginButton.addEventListener("click", async () => {
-  try {
-    await completeGmailLogin();
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
 vendorSignupOpenButton.addEventListener("click", async () => {
-  try {
-    const authUser = await api.gmailLogin({
-      email: "yarra.vendor@akshararbol.edu.in",
-      password: "Yarra@Vendor123",
-      role: "Vendor"
-    });
-    roleSelect.value = authUser.role;
-    setSessionValue(USER_STORAGE_KEY, JSON.stringify(authUser));
-    storeSession(authUser.session);
-    setAuthenticated(true);
-    await refresh();
-    setView("vendorSignup");
-    showToast("Vendor sign-up information opened.");
-  } catch (error) {
-    showToast(error.message);
-  }
+  const applicantSession = {
+    id: `vendor-applicant-${Date.now().toString(36)}`,
+    email: "vendor.applicant@yarra.local",
+    name: "Vendor applicant",
+    role: "Vendor",
+    vendorStatus: "Pending approval",
+    vendorApplicant: true
+  };
+  roleSelect.value = "Vendor";
+  setSessionValue(USER_STORAGE_KEY, JSON.stringify(applicantSession));
+  storeSession(applicantSession);
+  setAuthenticated(true);
+  await refreshWithSession(applicantSession);
+  setView("vendorSignup");
+  showToast("Vendor application opened. Marketplace access starts after Super Admin approval.");
 });
 
 document.querySelector("#logoutButton").addEventListener("click", async () => {
@@ -2231,24 +2173,6 @@ commitUploadButton.addEventListener("click", async () => {
   await refresh();
 });
 
-profileEditButton.addEventListener("click", () => {
-  const { role, school, student, teacher, displayName } = signedInProfile();
-  modal(
-    "Update profile",
-    [
-      { label: "Display name", name: "name", value: displayName, required: true },
-      { label: "Role", name: "role", value: role },
-      { label: "School", name: "school", value: school.name || "" },
-      { label: "Grade or designation", name: "designation", value: student.grade || teacher.designation || "" },
-      { label: "Mobile / guardian contact", name: "contact", value: student.guardianEmail || teacher.mobile || "" },
-      { label: "Profile notes", name: "notes", type: "textarea", value: "Add profile context, interests, languages, or responsibilities." }
-    ],
-    async () => {
-      showToast("Profile draft saved in this workspace. Full profile persistence will connect to user records next.");
-    }
-  );
-});
-
 document.querySelectorAll("#library .filter-chip[data-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     document.querySelectorAll("#library .filter-chip[data-filter]").forEach((chip) => chip.classList.remove("is-active"));
@@ -2275,26 +2199,25 @@ vendorCategory?.addEventListener("change", renderVendors);
 
 const openVendorProductModal = (existingProduct = null) => {
   const existing = existingProduct || {};
-  const selected = (value, expected) => value === expected ? "selected" : "";
   modal(
-    existingProduct ? "Edit product and pricing" : "Upload product and pricing",
+    existingProduct ? "Edit product" : "Add product",
     [
       { label: "Product name", name: "name", value: existing.name || "", required: true },
       { label: "Category", name: "category", type: "select", value: existing.category || "EdTech", options: ["Uniforms", "Books & Stationery", "EdTech", "Furniture & Fixtures", "Transport", "Sports Equipment"] },
       { label: "Price", name: "price", type: "number", value: existing.price || "999", required: true },
       { label: "Stock", name: "stock", type: "number", value: existing.stock ?? "100" },
-      { label: "Audience", name: "audience", type: "select", value: existing.audience || "Schools", options: ["Students", "Teachers", "Schools", "All members"] },
-      { label: "Delivery", name: "delivery", type: "select", value: existing.delivery || "Standard delivery", options: ["Standard delivery", "Express delivery", "Digital delivery", "School pickup"] },
-      { label: "Image URL", name: "imageUrl", type: "url", value: existing.imageUrl || "" },
-      { label: "Description", name: "description", type: "textarea", value: existing.description || "Describe what schools, teachers, or students will receive." }
+      { label: "Description", name: "description", type: "textarea", value: existing.description || "Describe what schools will receive." }
     ],
     async (payload) => {
+      payload.audience = existing.audience || "Schools";
+      payload.delivery = existing.delivery || "Standard delivery";
+      payload.imageUrl = existing.imageUrl || "";
       if (existingProduct) {
         await api.update(`/api/vendor-products/${existingProduct.id}`, payload);
       } else {
         await api.create("vendor-products", payload);
       }
-      showToast(currentRole() === "Vendor" ? "Product submitted for marketplace approval." : "Product saved to marketplace.");
+      showToast(currentRole() === "Vendor" ? "Product sent for approval." : "Product saved.");
       await refresh();
       setView("vendors");
     }
@@ -2313,8 +2236,8 @@ const openCartModal = () => {
     <div class="modal-card">
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Marketplace RFQ</p>
-          <h2>Your RFQ cart</h2>
+          <p class="eyebrow">Vendor request</p>
+          <h2>Products to request</h2>
         </div>
         <button class="icon-button close-modal" type="button" aria-label="Close">x</button>
       </div>
@@ -2324,12 +2247,12 @@ const openCartModal = () => {
             <strong>${item.name}</strong>
             <span>${item.quantity} x ${money(item.price)} = ${money(item.quantity * item.price)}</span>
           </article>
-        `).join("") : `<article><strong>RFQ cart is empty</strong><span>Add products before sending a request.</span></article>`}
+        `).join("") : `<article><strong>No products selected</strong><span>Add products before sending a request.</span></article>`}
       </div>
       <div class="cart-total-panel">
         <dl><div><dt>Total</dt><dd>${money(total)}</dd></div></dl>
       </div>
-      <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Submit RFQ</button>
+      <button class="primary-button checkout-cart" type="button" ${cartProducts.length ? "" : "disabled"}>Send request</button>
     </div>
   `;
   overlay.querySelector(".close-modal").addEventListener("click", () => overlay.remove());
@@ -2342,12 +2265,50 @@ const openCartModal = () => {
       marketCart = [];
       marketTab = "orders";
       overlay.remove();
-      showToast(`RFQ submitted: ${order.id}`);
+      showToast(`Request sent: ${order.id}`);
       await refresh();
       setView("vendors");
     }
   });
   document.body.append(overlay);
+};
+
+const openMarketMessageModal = (order) => {
+  modal(
+    `Message ${order.id}`,
+    [
+      {
+        label: "Message",
+        name: "message",
+        type: "textarea",
+        rows: 4,
+        required: true,
+        value: ""
+      }
+    ],
+    async (payload) => {
+      await api.post(`/api/market-orders/${order.id}/message`, { message: payload.message });
+      showToast("Message added.");
+    }
+  );
+};
+
+const payMarketOrder = async (order) => {
+  const email = "rkchelli43@gmail.com";
+  await api.post(`/api/market-orders/${order.id}/payment-link`, {
+    email,
+    description: `Vendor marketplace payment for ${order.id}`
+  });
+  showToast(`Razorpay payment link sent to ${email}.`);
+  await refresh();
+  setView("vendors");
+};
+
+const confirmMarketPayment = async (order) => {
+  const updated = await api.post(`/api/market-orders/${order.id}/confirm-payment`);
+  showToast(updated.status === "Paid" ? "Payment confirmed. Vendor can deliver now." : updated.paymentStatus || "Payment not confirmed yet.");
+  await refresh();
+  setView("vendors");
 };
 
 vendorProductButton?.addEventListener("click", openVendorProductModal);
@@ -2363,6 +2324,8 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
   const sellerProducts = event.target.closest(".view-seller-products");
   const statusButton = event.target.closest(".advance-order-status");
   const messageOrder = event.target.closest(".message-market-order");
+  const payOrder = event.target.closest(".pay-market-order");
+  const confirmPayment = event.target.closest(".confirm-market-payment");
   if (tab) {
     marketTab = tab.dataset.marketTab;
     if (marketTab !== "products") marketVendorFilter = "All";
@@ -2377,7 +2340,7 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
     const item = marketCart.find((cartItem) => cartItem.productId === addToCart.dataset.id);
     if (item) item.quantity += 1;
     else marketCart.push({ productId: addToCart.dataset.id, quantity: 1 });
-    showToast("Added to cart.");
+    showToast("Added to request.");
     renderVendors();
   }
   if (approve) {
@@ -2405,17 +2368,21 @@ document.querySelector("#vendors")?.addEventListener("click", async (event) => {
   }
   if (statusButton) {
     await api.post(`/api/market-orders/${statusButton.dataset.id}/advance`);
-    showToast("Order status updated.");
+    showToast("Request updated.");
     await refresh();
     setView("vendors");
   }
+  if (payOrder) {
+    const order = (state.marketOrders || []).find((item) => item.id === payOrder.dataset.id);
+    if (order) await payMarketOrder(order);
+  }
+  if (confirmPayment) {
+    const order = (state.marketOrders || []).find((item) => item.id === confirmPayment.dataset.id);
+    if (order) await confirmMarketPayment(order);
+  }
   if (messageOrder) {
-    const text = window.prompt("Message about this RFQ/order");
-    if (!text?.trim()) return;
-    await api.post(`/api/market-orders/${messageOrder.dataset.id}/message`, { message: text.trim() });
-    showToast("Order message added.");
-    await refresh();
-    setView("vendors");
+    const order = (state.marketOrders || []).find((item) => item.id === messageOrder.dataset.id);
+    if (order) openMarketMessageModal(order);
   }
 });
 
@@ -3288,17 +3255,24 @@ document.querySelector("#vendorSignupForm")?.addEventListener("submit", async (e
   const formData = new FormData(form);
   const status = form.querySelector(".form-status");
   try {
-    await api.create("vendors", Object.fromEntries(formData.entries()));
+    const vendor = await api.create("vendors", Object.fromEntries(formData.entries()));
+    const session = {
+      ...(currentSession() || {}),
+      email: vendor.contact,
+      name: vendor.name,
+      role: "Vendor",
+      vendorId: vendor.id,
+      vendorStatus: vendor.status,
+      vendorApplicant: vendor.status !== "Approved"
+    };
+    setSessionValue(USER_STORAGE_KEY, JSON.stringify(session));
+    storeSession(session);
     status.textContent = "Application submitted. Akshar Arbol admin will review and approve the listing.";
     await refresh();
+    setView("vendorSignup");
   } catch (error) {
     status.textContent = error.message;
   }
-});
-
-document.querySelector(".promotion-banner .ghost-button")?.addEventListener("click", () => {
-  const promotion = state.promotions[0];
-  showToast(promotion ? `${promotion.name}: ${promotion.placement} is ${promotion.status}.` : "No vendor promotions yet.");
 });
 
 syncSessionTimeoutControls();

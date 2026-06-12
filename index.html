@@ -40,10 +40,6 @@
           </select>
         </label>
         <button class="primary-button" type="submit">Sign in</button>
-        <button class="google-button" id="gmailLoginButton" type="button">
-          <span aria-hidden="true">Y</span>
-          Use selected test login
-        </button>
         <button class="ghost-button" id="vendorSignupOpenButton" type="button">Vendor sign-up information</button>
         <div class="credential-guide" aria-label="Yarra role credentials">
           <p><strong>Yarra role logins</strong></p>
@@ -75,12 +71,10 @@
           <button class="nav-item" type="button" data-view="payments">Payments & invoices</button>
           <button class="nav-item" type="button" data-view="events">Events</button>
           <button class="nav-item" type="button" data-view="exchange">Exchange programs</button>
-          <button class="nav-item" type="button" data-view="myProfile">My profile</button>
           <button class="nav-item" type="button" data-view="library">Content library</button>
           <button class="nav-item" type="button" data-view="vendorSignup">Vendor sign-up</button>
           <button class="nav-item" type="button" data-view="vendors">Vendor marketplace</button>
           <button class="nav-item" type="button" data-view="schoolNetwork">School network</button>
-          <button class="nav-item" type="button" data-view="profiles">School profiles</button>
         </nav>
 
         <section class="membership-card" aria-label="Membership status">
@@ -110,6 +104,7 @@
             <button class="icon-button" id="notificationButton" type="button" aria-label="Notifications">
               <span aria-hidden="true">3</span>
             </button>
+            <a class="ghost-button tutorial-open-button" href="assets/manuals/yarra-user-manual.pdf" download>Manual</a>
             <button class="ghost-button tutorial-open-button" id="tutorialButton" type="button">Tutorial</button>
             <button class="ghost-button" id="logoutButton" type="button">Logout</button>
           </div>
@@ -330,18 +325,6 @@
             </div>
           </section>
 
-          <section class="view" id="myProfile" aria-label="My profile">
-            <div class="section-bar">
-              <div>
-                <p class="eyebrow">Member identity</p>
-                <h2>My profile</h2>
-                <p>Personal, academic, staff, and school context for the signed-in user.</p>
-              </div>
-              <button class="primary-button" id="profileEditButton" type="button">Update profile</button>
-            </div>
-            <div class="profile-layout" id="myProfileGrid"></div>
-          </section>
-
           <section class="view" id="library" aria-label="Content library">
             <div class="section-bar">
               <div>
@@ -396,15 +379,13 @@
             <div class="vendor-hero">
               <div>
                 <p class="eyebrow">Vendor onboarding</p>
-                <h2>Host your services inside the Yarra vendor marketplace.</h2>
+                <h2>Become a Yarra vendor in three simple steps.</h2>
                 <p>
-                  Yarra Consortium connects verified school vendors with member schools through a curated
-                  procurement environment. Vendors can publish approved listings, promote seasonal offers,
-                  and receive enquiries from schools looking for trusted partners.
+                  Apply once, wait for Yarra approval, then add products for member schools to request.
                 </p>
                 <div class="hero-actions">
-                  <button class="primary-button" id="vendorApplyButton" type="button">Apply as vendor</button>
-                  <button class="ghost-button" id="vendorPreviewButton" type="button">View sample platform</button>
+                  <button class="primary-button" id="vendorApplyButton" type="button">Start application</button>
+                  <button class="ghost-button" id="vendorPreviewButton" type="button">Open marketplace</button>
                 </div>
               </div>
               <img src="https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1000&q=80" alt="Vendor team reviewing a digital marketplace dashboard">
@@ -412,76 +393,36 @@
 
             <div class="vendor-info-grid">
               <section class="panel">
-                <p class="eyebrow">About Yarra Consortium</p>
-                <h3>A school collaboration and procurement network.</h3>
-                <p class="panel-copy">
-                  The platform brings schools, educators, students, programs, content, and vetted vendors
-                  into one member-only ecosystem. Vendor visibility is marketplace-only unless Super Admin
-                  explicitly grants access to campaign or sponsored program surfaces.
-                </p>
+                <p class="eyebrow">Step 1</p>
+                <h3>Apply</h3>
+                <p class="panel-copy">Submit your company name, category, contact email, and school offer.</p>
               </section>
               <section class="panel">
-                <p class="eyebrow">Akshar Arbol contact</p>
-                <h3>Admin coordination</h3>
+                <p class="eyebrow">Step 2</p>
+                <h3>Get approved</h3>
+                <p class="panel-copy">Super Admin reviews the application and approves suitable vendors.</p>
+              </section>
+              <section class="panel">
+                <p class="eyebrow">Step 3</p>
+                <h3>Sell to schools</h3>
+                <p class="panel-copy">Add products. Schools send requests, and you coordinate directly in Yarra.</p>
+              </section>
+              <section class="panel">
+                <p class="eyebrow">Need help?</p>
+                <h3>Yarra admin support</h3>
                 <div class="contact-block">
-                  <strong>Akshar Arbol Admin</strong>
+                  <strong>Admin coordination</strong>
                   <span>Email: admin@akshararbol.edu.in</span>
-                  <span>Phone: +91 98765 43210</span>
-                  <span>Role: vendor verification, approvals, school coordination</span>
-                </div>
-              </section>
-              <section class="panel">
-                <p class="eyebrow">Vendor procedure</p>
-                <ol class="procedure-list">
-                  <li>Submit company details, category, contact, logo, and consortium offer.</li>
-                  <li>Akshar Arbol/Yarra admin reviews the listing and verifies fit for schools.</li>
-                  <li>Approved vendors go live in the directory with enquiry routing enabled.</li>
-                  <li>Promotional banners and featured placements are submitted for Super Admin approval.</li>
-                  <li>Campaign performance and enquiries are tracked inside the vendor workspace.</li>
-                </ol>
-              </section>
-              <section class="panel">
-                <p class="eyebrow">Benefits</p>
-                <div class="benefit-list">
-                  <article><strong>Verified school reach</strong><span>Access member schools looking for trusted procurement partners.</span></article>
-                  <article><strong>Curated categories</strong><span>Stand out under uniforms, books, EdTech, transport, sports, infrastructure, and more.</span></article>
-                  <article><strong>Promotions engine</strong><span>Run seasonal campaigns such as Back to School offers with admin approval.</span></article>
-                  <article><strong>Lead management</strong><span>Receive school enquiries through a self-contained marketplace inbox.</span></article>
+                  <span>Use this for vendor verification and school coordination.</span>
                 </div>
               </section>
             </div>
 
-            <section class="sample-platform">
-              <div class="section-bar">
-                <div>
-                  <p class="eyebrow">Sample vendor platform</p>
-                  <h2>What your vendor workspace looks like</h2>
-                </div>
-              </div>
-              <div class="sample-grid">
-                <article>
-                  <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=900&q=80" alt="Business dashboard with analytics documents">
-                  <h3>Listing dashboard</h3>
-                  <p>Manage profile status, category, offers, and school-facing details.</p>
-                </article>
-                <article>
-                  <img src="https://images.unsplash.com/photo-1556745757-8d76bdb6984b?auto=format&fit=crop&w=900&q=80" alt="Team reviewing customer support and enquiries">
-                  <h3>Enquiry inbox</h3>
-                  <p>Track school enquiries and follow up with procurement teams.</p>
-                </article>
-                <article>
-                  <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=80" alt="Analytics charts on laptop">
-                  <h3>Promotion previews</h3>
-                  <p>Submit campaign banners, offers, and placement requests for approval.</p>
-                </article>
-              </div>
-            </section>
-
             <section class="panel vendor-apply-panel">
               <div class="panel-heading">
                 <div>
-                  <p class="eyebrow">Vendor application</p>
-                  <h2>Submit your company for approval</h2>
+                  <p class="eyebrow">Application</p>
+                  <h2>Vendor details</h2>
                 </div>
               </div>
               <form class="platform-form" id="vendorSignupForm">
@@ -508,10 +449,10 @@
                   <input name="contact" type="email" value="vendor@example.com" required>
                 </label>
                 <label>
-                  Consortium offer
+                  School offer
                   <textarea name="offer" rows="3" required>Introductory member-school pricing and priority onboarding support.</textarea>
                 </label>
-                <button class="primary-button" type="submit">Submit for admin approval</button>
+                <button class="primary-button" type="submit">Send application</button>
                 <p class="form-status" aria-live="polite"></p>
               </form>
             </section>
@@ -520,11 +461,11 @@
           <section class="view" id="vendors" aria-label="Vendor marketplace">
             <div class="section-bar">
               <div>
-                <p class="eyebrow">Yarra e-market</p>
-                <h2>Marketplace, checkout, and orders</h2>
+                <p class="eyebrow">Vendors</p>
+                <h2>Vendor marketplace</h2>
               </div>
-              <button class="primary-button" id="vendorProductButton" type="button">Upload product</button>
-              <button class="ghost-button" id="marketCartButton" type="button">Cart 0</button>
+              <button class="primary-button" id="vendorProductButton" type="button">Add product</button>
+              <button class="ghost-button" id="marketCartButton" type="button">Request 0</button>
               <label class="search-field">
                 <span>Category</span>
                 <select id="vendorCategory">
@@ -538,27 +479,19 @@
                 </select>
               </label>
             </div>
-            <section class="promotion-banner">
-              <div>
-                <p class="eyebrow">Seasonal campaign</p>
-                <h3>Back to School - July 2026</h3>
-                <p>Homepage banner, category banner, email mention, and sidebar spotlight placements are queued for approval.</p>
-              </div>
-              <button class="ghost-button dark" type="button">Review campaign</button>
-            </section>
             <div class="library-insights" id="marketInsights"></div>
             <div class="market-layout">
               <section>
                 <div class="market-toolbar">
                   <button class="filter-chip is-active market-tab" type="button" data-market-tab="products">Products</button>
                   <button class="filter-chip market-tab" type="button" data-market-tab="vendors">Vendors</button>
-                  <button class="filter-chip market-tab" type="button" data-market-tab="orders">Orders</button>
+                  <button class="filter-chip market-tab" type="button" data-market-tab="orders">Requests</button>
                 </div>
                 <div class="market-grid" id="marketGrid"></div>
               </section>
               <aside class="panel market-side-panel">
-                <p class="eyebrow">Order tracking</p>
-                <h3>Recent orders</h3>
+                <p class="eyebrow">Requests</p>
+                <h3>Recent requests</h3>
                 <div class="compact-list" id="marketOrders"></div>
               </aside>
             </div>
@@ -569,44 +502,18 @@
               <div>
                 <p class="eyebrow">Consortium directory</p>
                 <h2>School network</h2>
-                <p>Public member-school profiles across Yarra. Editing remains restricted to each school.</p>
+                <p>Browse member schools across Yarra by board, city, and active consortium activity.</p>
               </div>
             </div>
             <div class="card-grid" id="schoolNetworkGrid"></div>
           </section>
 
-          <section class="view" id="profiles" aria-label="School profiles">
-            <div class="section-bar">
-              <div>
-                <p class="eyebrow">Members only</p>
-                <h2>School profile pages</h2>
-              </div>
-            </div>
-            <div class="profile-layout">
-              <article class="school-profile">
-                <img src="assets/yarra-logo.jpeg" alt="Yarra Education Group">
-                <div>
-                  <p class="eyebrow">No profile yet</p>
-                  <h3>Add your first school</h3>
-                  <p>School profile details appear after onboarding.</p>
-                </div>
-              </article>
-              <section class="panel">
-                <h3>Profile highlights</h3>
-                <ul class="clean-list">
-                  <li>Leadership team and contact details visible to member schools</li>
-                  <li>Hosted events and exchange opportunities feed into the page</li>
-                  <li>Achievements editable by the School Admin</li>
-                </ul>
-              </section>
-            </div>
-          </section>
         </main>
       </div>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script type="module" src="script.js?v=20260610-native-template-download"></script>
+    <script type="module" src="script.js?v=20260612-vendor-tutorial-gate"></script>
   </body>
 </html>
